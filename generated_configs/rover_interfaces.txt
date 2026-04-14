@@ -1,0 +1,15 @@
+auto eth0.99
+iface eth0.99 inet static
+  address 10.99.1.2
+  vlan-raw-device eth0
+
+auto eth0.900
+iface eth0.900 inet static
+  address 10.0.0.1
+  vlan-raw-device eth0
+
+auto eth0.24
+iface eth0.24 inet static
+  address 10.0.0.9
+  vlan-raw-device eth0
+

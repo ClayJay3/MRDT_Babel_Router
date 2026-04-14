@@ -1,25 +1,25 @@
 ! MRDT Rover Cisco Switch Config
 no router eigrp 90
 
-vlan 24
- name 2.4GHz_Link
 vlan 900
  name 900MHz_Link
+vlan 24
+ name 2.4GHz_Link
 vlan 99
  name Pi_Transit_Rover
 
 interface GigabitEthernet1/10
- description Connection to Rover Pi Babel Router
+ description Trunk to Rover Pi
  switchport mode trunk
- switchport trunk allowed vlan 24,900,99
+ switchport trunk allowed vlan 900,24,99
 
 interface Vlan99
- ip address 10.99.1.1 255.255.255.252
+ ip address 10.99.1.2 255.255.255.252
  ip ospf 1 area 0
 
 router ospf 1
  router-id 192.168.254.1
  network 10.99.1.0 0.0.0.3 area 0
- network 192.168.3.0 0.0.0.255 area 0
  network 192.168.2.0 0.0.0.255 area 0
+ network 192.168.3.0 0.0.0.255 area 0
  network 192.168.4.0 0.0.0.255 area 0

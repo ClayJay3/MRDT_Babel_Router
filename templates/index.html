@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MRDT Network Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            /* Light Mode Defaults */
+            --bg-main: #f4f6f8;
+            --bg-card: #ffffff;
+            --bg-box: #f0f0f0;
+            --bg-darker: #e4e4e4;
+            --text-main: #121212;
+            --text-muted: #555555;
+            --border-color: #cccccc;
+            --mrdt-red: #c8102e; /* MRDT Red */
+            --mrdt-red-hover: #a00c24;
+            --chart-grid: #dddddd;
+            --standby-bg: #e0e0e0;
+            --standby-text: #666666;
+            --shadow-color: rgba(0, 0, 0, 0.1);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                /* Dark Mode Overrides */
+                --bg-main: #121212;
+                --bg-card: #1e1e1e;
+                --bg-box: #222222;
+                --bg-darker: #1a1a1a;
+                --text-main: #ffffff;
+                --text-muted: #888888;
+                --border-color: #444444;
+                --mrdt-red: #ff3b5c; /* Slightly brighter red for dark mode contrast */
+                --mrdt-red-hover: #c8102e;
+                --chart-grid: #333333;
+                --standby-bg: #333333;
+                --standby-text: #888888;
+                --shadow-color: rgba(0, 0, 0, 0.5);
+            }
+        }
+
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: var(--bg-main); 
+            color: var(--text-main); 
+            margin: 0; 
+            padding: 20px; 
+            overflow-x: hidden; 
+            transition: background-color 0.3s, color 0.3s;
+        }
+        
+        h1 { 
+            text-align: center; 
+            color: var(--mrdt-red); 
+            letter-spacing: 2px; 
+            margin-bottom: 20px; 
+            text-transform: uppercase; 
+        }
+        
+        /* Summary HUD */
+        .hud-container { 
+            display: flex; 
+            justify-content: center; 
+            gap: 30px; 
+            margin-bottom: 40px; 
+        }
+        .hud-card { 
+            background: var(--bg-card); 
+            border: 1px solid var(--border-color); 
+            border-radius: 8px; 
+            padding: 15px 30px; 
+            text-align: center; 
+            width: 200px; 
+            box-shadow: 0 4px 10px var(--shadow-color); 
+            transition: all 0.3s ease; 
+        }
+        .hud-title { 
+            color: var(--text-muted); 
+            font-size: 0.8em; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+            margin-bottom: 10px; 
+        }
+        .hud-value { 
+            font-size: 1.8em; 
+            font-weight: bold; 
+        }
+        
+        /* Network Diagram */
+        .dashboard { 
+            display: flex; 
+            justify-content: center; 
+            align-items: stretch; 
+            max-width: 1400px; 
+            margin: 0 auto; 
+            gap: 20px; 
+        }
+        .node { 
+            background: var(--bg-card); 
+            border: 2px solid var(--border-color); 
+            padding: 40px 20px; 
+            border-radius: 10px; 
+            width: 220px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            text-align: center; 
+            font-size: 1.8em; 
+            font-weight: bold; 
+            box-shadow: 0 10px 20px var(--shadow-color); 
+            z-index: 10; 
+        }
+        .links-wrapper { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 30px; 
+            flex-grow: 1; 
+            justify-content: center; 
+        }
+        .link-container { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            position: relative; 
+            width: 100%; 
+        }
+        
+        .headers { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            margin-bottom: 8px; 
+            gap: 6px; 
+        }
+        .band-label { 
+            font-weight: bold; 
+            font-size: 1.3em; 
+            color: var(--text-muted); 
+            background: var(--bg-darker); 
+            padding: 4px 16px; 
+            border-radius: 6px; 
+            border: 1px solid var(--border-color); 
+        }
+        .vlan-badge { 
+            padding: 4px 12px; 
+            border-radius: 12px; 
+            font-size: 0.85em; 
+            font-weight: bold; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+            text-align: center; 
+        }
+        .vlan-standby { background: var(--standby-bg); color: var(--standby-text); border: 1px solid var(--border-color); }
+        .vlan-active { background: #1b5e20; color: #a5d6a7; border: 1px solid #4CAF50; }
+        .vlan-qos { background: #b71c1c; color: #ffcdd2; border: 1px solid #f44336; }
+
+        /* Dynamic Directional Tubes */
+        .dual-pipes {
+            width: 110%;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin: 15px 0;
+            z-index: 1;
+        }
+        
+        .directional-pipe-wrapper {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            position: relative;
+        }
+        
+        .pipe-label {
+            position: absolute;
+            font-size: 0.65em;
+            font-weight: bold;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 3px 8px;
+            border-radius: 4px;
+            z-index: 2;
+            letter-spacing: 1px;
+        }
+        .pipe-label.tx { left: 15%; top: -10px; }
+        .pipe-label.rx { right: 15%; top: -10px; }
+
+        .tube {
+            width: 100%;
+            height: 6px; /* Base resting height */
+            background: var(--border-color);
+            border-radius: 10px;
+            transition: height 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.3s, box-shadow 0.3s;
+        }
+
+        @keyframes flowRight { 
+            from { background-position: -60px 0; } 
+            to { background-position: 0 0; } 
+        }
+        @keyframes flowLeft { 
+            from { background-position: 60px 0; } 
+            to { background-position: 0 0; } 
+        }
+
+        .bg-green {
+            background: repeating-linear-gradient(90deg, #4CAF50, #4CAF50 15px, #1b5e20 15px, #1b5e20 30px) !important;
+            background-size: 60px 100% !important;
+            box-shadow: 0 0 15px rgba(76, 175, 80, 0.6);
+        }
+        .bg-amber {
+            background: repeating-linear-gradient(90deg, #FFC107, #FFC107 15px, #FF8F00 15px, #FF8F00 30px) !important;
+            background-size: 60px 100% !important;
+            box-shadow: 0 0 15px rgba(255, 193, 7, 0.6);
+        }
+        .bg-red {
+            background: #F44336 !important;
+            box-shadow: 0 0 15px rgba(244, 67, 54, 0.6);
+        }
+
+        .anim-right { animation: flowRight 1s linear infinite; }
+        .anim-left { animation: flowLeft 1s linear infinite; }
+        
+        .stats { 
+            display: flex; 
+            justify-content: space-around; 
+            width: 90%; 
+            background: var(--bg-box); 
+            padding: 12px; 
+            border-radius: 8px; 
+            border: 1px solid var(--border-color); 
+            box-shadow: 0 4px 6px var(--shadow-color); 
+            font-size: 0.9em; 
+            z-index: 5; 
+        }
+        .stat-box { 
+            text-align: center; 
+            flex: 1; 
+        }
+        .stat-label { 
+            color: var(--text-muted); 
+            font-size: 0.75em; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+        }
+        .stat-value { 
+            font-weight: bold; 
+            margin-top: 5px; 
+            font-size: 1.1em; 
+            font-family: monospace; 
+        }
+
+        /* Graphing Section */
+        .graphs-section { 
+            max-width: 1200px; 
+            margin: 50px auto 20px auto; 
+            background: var(--bg-card); 
+            padding: 20px; 
+            border-radius: 10px; 
+            border: 1px solid var(--border-color); 
+            box-shadow: 0 10px 20px var(--shadow-color); 
+        }
+        .tabs { 
+            display: flex; 
+            justify-content: center; 
+            gap: 15px; 
+            margin-bottom: 20px; 
+        }
+        .tab-btn { 
+            background: var(--bg-box); 
+            color: var(--text-main); 
+            border: 1px solid var(--border-color); 
+            padding: 10px 20px; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            font-weight: bold; 
+            transition: 0.3s; 
+        }
+        .tab-btn:hover { background: var(--bg-darker); }
+        .tab-btn.active { background: var(--mrdt-red); border-color: var(--mrdt-red); color: #fff; }
+        .chart-container { position: relative; height: 300px; width: 100%; }
+        
+    </style>
+</head>
+<body>
+    <h1>Rover Routing & Telemetry</h1>
+    
+    <div class="hud-container">
+        <div class="hud-card" id="hud-quality-card">
+            <div class="hud-title">Active Link Quality</div>
+            <div class="hud-value" id="hud-quality">--</div>
+        </div>
+        <div class="hud-card">
+            <div class="hud-title">Active Latency</div>
+            <div class="hud-value" id="hud-latency">--</div>
+        </div>
+        <div class="hud-card">
+            <div class="hud-title">Total Throughput</div>
+            <div class="hud-value" id="hud-throughput">--</div>
+        </div>
+    </div>
+
+    <div class="dashboard">
+        <div class="node">MRDT<br>Rover</div>
+        <div class="links-wrapper" id="links-container"></div>
+        <div class="node">MRDT<br>Basestation</div>
+    </div>
+
+    <div class="graphs-section">
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchGraph('throughput')">Total Throughput</button>
+            <button class="tab-btn" onclick="switchGraph('vlan')">VLAN Distribution</button>
+            <button class="tab-btn" onclick="switchGraph('latency')">Latency (RTT)</button>
+            <button class="tab-btn" onclick="switchGraph('etx')">ETX Route Cost</button>
+        </div>
+        <div class="chart-container">
+            <canvas id="historyChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const bands = ["5.8GHz", "2.4GHz", "900MHz"];
+        const maxDataPoints = 60; // 60 seconds of history
+        let currentGraphMode = 'throughput';
+        
+        // Setup historical data arrays
+        const history = {
+            labels: Array(maxDataPoints).fill(''),
+            throughput: { "5.8GHz": Array(maxDataPoints).fill(0), "2.4GHz": Array(maxDataPoints).fill(0), "900MHz": Array(maxDataPoints).fill(0) },
+            latency: { "5.8GHz": Array(maxDataPoints).fill(0), "2.4GHz": Array(maxDataPoints).fill(0), "900MHz": Array(maxDataPoints).fill(0) },
+            etx: { "5.8GHz": Array(maxDataPoints).fill(0), "2.4GHz": Array(maxDataPoints).fill(0), "900MHz": Array(maxDataPoints).fill(0) },
+            vlan: { "Telemetry (VLAN 2+3)": Array(maxDataPoints).fill(0), "Cameras (VLAN 4)": Array(maxDataPoints).fill(0) }
+        };
+
+        const colors = { 
+            "5.8GHz": "#c8102e", /* MRDT Red */
+            "2.4GHz": "#e0a800", /* Gold */
+            "900MHz": "#005b9f", /* Contrast Blue */
+            "Telemetry (VLAN 2+3)": "#c8102e", 
+            "Cameras (VLAN 4)": "#e0a800"
+        };
+
+        function getCssVar(name) {
+            return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        }
+
+        // Initialize Chart.js
+        const ctx = document.getElementById('historyChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: history.labels, datasets: [] },
+            options: {
+                responsive: true, 
+                maintainAspectRatio: false, 
+                animation: false,
+                scales: { 
+                    y: { beginAtZero: true, grid: { color: getCssVar('--chart-grid') }, ticks: { color: getCssVar('--text-main') } },
+                    x: { grid: { display: false }, ticks: { maxTicksLimit: 10, color: getCssVar('--text-main') } }
+                },
+                plugins: { 
+                    legend: { labels: { color: getCssVar('--text-main'), font: { size: 14 } } } 
+                }
+            }
+        });
+
+        // Update chart colors dynamically if the system theme changes
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+            chart.options.scales.y.grid.color = getCssVar('--chart-grid');
+            chart.options.scales.y.ticks.color = getCssVar('--text-main');
+            chart.options.scales.x.ticks.color = getCssVar('--text-main');
+            chart.options.plugins.legend.labels.color = getCssVar('--text-main');
+            chart.update();
+        });
+
+        // Build DOM for links dynamically
+        const container = document.getElementById('links-container');
+        bands.forEach(band => {
+            const safeId = band.replace('.', '');
+            container.innerHTML += `
+                <div class="link-container" id="container-${safeId}">
+                    <div class="headers">
+                        <div class="band-label" id="label-${safeId}">${band}</div>
+                        <div class="vlan-badge vlan-standby" id="vlan-${safeId}">NO TRAFFIC</div>
+                    </div>
+                    <div class="dual-pipes">
+                        <div class="directional-pipe-wrapper">
+                            <div class="pipe-label tx">TX ➔</div>
+                            <div class="tube" id="tube-tx-${safeId}"></div>
+                        </div>
+                        <div class="directional-pipe-wrapper">
+                            <div class="pipe-label rx">⬅ RX</div>
+                            <div class="tube" id="tube-rx-${safeId}"></div>
+                        </div>
+                    </div>
+                    <div class="stats">
+                        <div class="stat-box">
+                            <div class="stat-label">Status</div>
+                            <div class="stat-value" id="status-${safeId}">--</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">ETX Cost</div>
+                            <div class="stat-value" id="etx-${safeId}">--</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Latency</div>
+                            <div class="stat-value" id="rtt-${safeId}">--</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Rx Mbps</div>
+                            <div class="stat-value" id="rx-${safeId}">--</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Tx Mbps</div>
+                            <div class="stat-value" id="tx-${safeId}">--</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        function switchGraph(mode) {
+            currentGraphMode = mode;
+            // Update active tab styling
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            updateChartDisplay();
+        }
+
+        function updateChartDisplay() {
+            let datasets = [];
+            
+            // VLAN Graph needs different dataset mapping
+            if (currentGraphMode === 'vlan') {
+                datasets = ["Telemetry (VLAN 2+3)", "Cameras (VLAN 4)"].map(type => ({
+                    label: type,
+                    data: history.vlan[type],
+                    borderColor: colors[type],
+                    backgroundColor: colors[type] + '20',
+                    borderWidth: 3,
+                    pointRadius: 0,
+                    fill: true,
+                    tension: 0.3
+                }));
+            } else {
+                datasets = bands.map(band => ({
+                    label: band,
+                    data: history[currentGraphMode][band],
+                    borderColor: colors[band],
+                    backgroundColor: colors[band] + '20',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    fill: true,
+                    tension: 0.3
+                }));
+            }
+            
+            chart.data.datasets = datasets;
+            chart.update();
+        }
+
+        async function updateDashboard() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                
+                let activeLinkQuality = 'NO CONNECTION';
+                let activeLatency = '--';
+                let totalRx = 0;
+                let totalTx = 0;
+                let totalTelem = 0;
+                let totalCam = 0;
+                let qualityColor = '#F44336'; 
+
+                // Rotate Time Labels
+                history.labels.push(new Date().toLocaleTimeString([], {hour12: false, second: '2-digit'}));
+                history.labels.shift();
+
+                Object.keys(data).forEach(band => {
+                    const safeId = band.replace('.', '');
+                    const linkData = data[band];
+                    
+                    let rttVal = parseFloat(linkData.rtt) || 0;
+                    let etxVal = parseFloat(linkData.etx) || 0;
+                    let combinedThroughput = linkData.rx_mbps + linkData.tx_mbps;
+
+                    // Update History Arrays
+                    history.throughput[band].push(combinedThroughput);
+                    history.throughput[band].shift();
+                    history.latency[band].push(rttVal);
+                    history.latency[band].shift();
+                    history.etx[band].push(etxVal);
+                    history.etx[band].shift();
+
+                    // Sum metrics across all links
+                    totalRx += linkData.rx_mbps;
+                    totalTx += linkData.tx_mbps;
+                    totalTelem += linkData.vlan_telem_mbps;
+                    totalCam += linkData.vlan_cam_mbps;
+
+                    // Evaluate Active Link Health
+                    if (linkData.active) {
+                        activeLatency = linkData.rtt !== "N/A" ? `${linkData.rtt} ms` : '0 ms';
+                        if (rttVal < 40) { 
+                            activeLinkQuality = 'GOOD'; 
+                            qualityColor = '#4CAF50'; 
+                        } else if (rttVal >= 40 && rttVal < 100) { 
+                            activeLinkQuality = 'MODERATE'; 
+                            qualityColor = '#FFC107'; 
+                        } else { 
+                            activeLinkQuality = 'BAD'; 
+                            qualityColor = '#FF5722'; 
+                        }
+                    }
+
+                    // Update Individual Link UI Elements
+                    document.getElementById(`status-${safeId}`).innerText = linkData.status;
+                    document.getElementById(`etx-${safeId}`).innerText = linkData.etx;
+                    document.getElementById(`rtt-${safeId}`).innerText = linkData.rtt !== "N/A" ? linkData.rtt + ' ms' : '--';
+                    document.getElementById(`rx-${safeId}`).innerText = linkData.rx_mbps.toFixed(2);
+                    document.getElementById(`tx-${safeId}`).innerText = linkData.tx_mbps.toFixed(2);
+
+                    const txTube = document.getElementById(`tube-tx-${safeId}`);
+                    const rxTube = document.getElementById(`tube-rx-${safeId}`);
+                    const vlanBadge = document.getElementById(`vlan-${safeId}`);
+                    const label = document.getElementById(`label-${safeId}`);
+                    
+                    let vlanText = 'STANDBY'; 
+                    let vlanClass = 'vlan-standby'; 
+                    let labelColor = getCssVar('--text-muted');
+
+                    if (linkData.status === "DOWN") {
+                        vlanText = 'LINK DOWN'; 
+                        document.getElementById(`status-${safeId}`).style.color = '#F44336';
+                        
+                        txTube.className = 'tube bg-red';
+                        rxTube.className = 'tube bg-red';
+                        txTube.style.height = '6px';
+                        rxTube.style.height = '6px';
+                    } else {
+                        document.getElementById(`status-${safeId}`).style.color = getCssVar('--text-main');
+                        
+                        if (linkData.active) {
+                            labelColor = '#4CAF50';
+                            let bgClass = 'bg-green';
+                            
+                            // Visual degradation for higher latency
+                            if (rttVal >= 40) { 
+                                bgClass = 'bg-amber';
+                                labelColor = '#FFC107'; 
+                            }
+                            
+                            // Set directional flow animations
+                            txTube.className = `tube ${bgClass} anim-right`;
+                            rxTube.className = `tube ${bgClass} anim-left`;
+
+                            // Inflate the tube based on Mbps (min 6px, max 35px, grows 1.5px per Mbps)
+                            let txHeight = Math.min(35, Math.max(6, 6 + (linkData.tx_mbps * 1.5)));
+                            let rxHeight = Math.min(35, Math.max(6, 6 + (linkData.rx_mbps * 1.5)));
+                            txTube.style.height = `${txHeight}px`;
+                            rxTube.style.height = `${rxHeight}px`;
+
+                            // Speed up flow animation based on traffic volume
+                            let txSpeed = Math.max(0.15, 1.2 - (linkData.tx_mbps * 0.05));
+                            let rxSpeed = Math.max(0.15, 1.2 - (linkData.rx_mbps * 0.05));
+                            txTube.style.animationDuration = `${txSpeed}s`;
+                            rxTube.style.animationDuration = `${rxSpeed}s`;
+
+                            // Custom rules for different bands
+                            if (band === "900MHz") {
+                                vlanText = 'CARRYING: VLAN 2 & 3 | DROPPING: VLAN 4 (QoS ACTIVE)';
+                                vlanClass = 'vlan-qos'; 
+                                labelColor = '#f44336'; 
+                            } else {
+                                vlanText = 'FLOWING: VLAN 2 (Telem), VLAN 3 (Autonomy), VLAN 4 (Cam)';
+                                vlanClass = 'vlan-active';
+                            }
+                        } else {
+                            // Standby Reset
+                            txTube.className = 'tube';
+                            rxTube.className = 'tube';
+                            txTube.style.height = '6px';
+                            rxTube.style.height = '6px';
+                        }
+                    }
+
+                    // Apply styles
+                    label.style.color = labelColor;
+                    label.style.borderColor = linkData.active ? labelColor : getCssVar('--border-color');
+                    vlanBadge.className = `vlan-badge ${vlanClass}`;
+                    vlanBadge.innerText = vlanText;
+                });
+
+                // Update VLAN History Arrays
+                history.vlan["Telemetry (VLAN 2+3)"].push(totalTelem);
+                history.vlan["Telemetry (VLAN 2+3)"].shift();
+                history.vlan["Cameras (VLAN 4)"].push(totalCam);
+                history.vlan["Cameras (VLAN 4)"].shift();
+
+                // Update Global HUD
+                document.getElementById('hud-quality').innerText = activeLinkQuality;
+                document.getElementById('hud-quality').style.color = qualityColor;
+                document.getElementById('hud-quality-card').style.borderColor = qualityColor;
+                document.getElementById('hud-latency').innerText = activeLatency;
+                document.getElementById('hud-throughput').innerText = (totalRx + totalTx).toFixed(2) + ' Mbps';
+
+                // Re-render chart with new data
+                updateChartDisplay();
+
+            } catch (err) { 
+                console.error("Failed to fetch stats from API:", err); 
+            }
+        }
+
+        // Poll API every 1000ms
+        setInterval(updateDashboard, 1000);
+    </script>
+</body>
+</html>

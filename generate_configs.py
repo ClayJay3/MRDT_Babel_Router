@@ -1,4 +1,5 @@
 import os
+import ipaddress
 
 def print_header(title, description=""):
     """Prints a formatted header box to the console for clear UI separation."""
@@ -132,16 +133,23 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     print_header("Generating Files...", f"Saving to ./{out_dir}/")
 
-    # --- Pre-calculate some values for cleaner code below ---
-    # Strip CIDR masks (e.g. 10.99.1.2/30 -> 10.99.1.2)
-    rover_transit_ip_only = rover_transit_ip.split('/')[0]
-    base_transit_ip_only = base_transit_ip.split('/')[0]
+    # --- Pre-calculate values using ipaddress module ---
+    # Use ipaddress to avoid collisions and brittle slicing
+    rover_iface_obj = ipaddress.IPv4Interface(rover_transit_ip)
+    base_iface_obj = ipaddress.IPv4Interface(base_transit_ip)
     
-    # Calculate OSPF network IPs. 
-    # Note: Preserving original logic which assumes the last octet is a single digit.
-    # Ex: '10.99.1.2' -> '10.99.1.' -> '10.99.1.0'
-    rover_ospf_network = rover_transit_ip_only[:-1] + "0"
-    base_ospf_network = base_transit_ip_only[:-1] + "0"
+    # Calculate unique Switch IP (assuming Switch is .1 if Pi is .2, or just pick first available)
+    rover_switch_ip = str(rover_iface_obj.network.network_address + 1)
+    base_switch_ip = str(base_iface_obj.network.network_address + 1)
+    
+    rover_transit_ip_only = str(rover_iface_obj.ip)
+    base_transit_ip_only = str(base_iface_obj.ip)
+    
+    # Calculate actual network and wildcard masks
+    rover_ospf_network = str(rover_iface_obj.network.network_address)
+    rover_wildcard = str(rover_iface_obj.network.hostmask)
+    base_ospf_network = str(base_iface_obj.network.network_address)
+    base_wildcard = str(base_iface_obj.network.hostmask)
 
     # Compile the allowed VLAN list for trunks (e.g. "58,24,900,99")
     allowed_vlan_str = ",".join([link['vlan'] for link in links]) + ",99"
@@ -169,17 +177,17 @@ def main():
         f.write(f" switchport trunk allowed vlan {allowed_vlan_str}\n\n")
         
         f.write("interface Vlan99\n")
-        f.write(f" ip address {rover_transit_ip_only} {rover_transit_mask}\n")
+        f.write(f" ip address {rover_switch_ip} {rover_transit_mask}\n")
         f.write(" ip ospf 1 area 0\n\n")
         
         f.write("router ospf 1\n")
         f.write(" router-id 192.168.254.1\n")
-        f.write(f" network {rover_ospf_network} 0.0.0.3 area 0\n")
+        f.write(f" network {rover_ospf_network} {rover_wildcard} area 0\n")
         
-        # Add all rover client subnets to OSPF
+        # Dynamic wildcard for all subnets
         for vlan in all_rover_vlans: 
-            vlan_subnet_ip = vlan['subnet'].split('/')[0]
-            f.write(f" network {vlan_subnet_ip} 0.0.0.255 area 0\n")
+            vlan_net = ipaddress.IPv4Network(vlan['subnet'], strict=False)
+            f.write(f" network {vlan_net.network_address} {vlan_net.hostmask} area 0\n")
 
     # Generate Base Switch
     with open(f"{out_dir}/base_switch.txt", "w") as f:
@@ -198,13 +206,15 @@ def main():
         f.write(f" switchport trunk allowed vlan {allowed_vlan_str}\n\n")
         
         f.write("interface Vlan99\n")
-        f.write(f" ip address {base_transit_ip_only} {base_transit_mask}\n")
+        f.write(f" ip address {base_switch_ip} {base_transit_mask}\n")
         f.write(" ip ospf 1 area 0\n\n")
         
         f.write("router ospf 1\n")
         f.write(" router-id 192.168.254.2\n")
-        f.write(f" network {base_ospf_network} 0.0.0.3 area 0\n")
-        f.write(f" network {base_vlan.split('/')[0]} 0.0.0.255 area 0\n")
+        f.write(f" network {base_ospf_network} {base_wildcard} area 0\n")
+        
+        base_vlan_net = ipaddress.IPv4Network(base_vlan, strict=False)
+        f.write(f" network {base_vlan_net.network_address} {base_vlan_net.hostmask} area 0\n")
 
     # ---------------------------------------------------------
     # 4.2 Linux OS Network Configs (Netplan & Interfaces)
@@ -219,42 +229,41 @@ def main():
         # Modern Ubuntu Network Setup (Netplan)
         with open(f"{out_dir}/{site}_netplan.yaml", "w") as f:
             f.write(f"network:\n  version: 2\n  ethernets:\n    {pi_iface}:\n      dhcp4: true\n  vlans:\n")
-            f.write(f"    vlan99:\n      id: 99\n      link: {pi_iface}\n      addresses: [{transit_ip}]\n")
+            f.write(f"    {pi_iface}.99:\n      id: 99\n      link: {pi_iface}\n      addresses: [{transit_ip}]\n")
             
             for link in links:
                 ip = link['rover_ip'] if site == "rover" else link['base_ip']
-                f.write(f"    vlan{link['vlan']}:\n      id: {link['vlan']}\n      link: {pi_iface}\n      addresses: [{ip}]\n")
+                f.write(f"    {pi_iface}.{link['vlan']}:\n      id: {link['vlan']}\n      link: {pi_iface}\n      addresses: [{ip}]\n")
         
         # Legacy/Debian Network Setup (/etc/network/interfaces)
         with open(f"{out_dir}/{site}_interfaces.txt", "w") as f:
-            transit_ip_only = transit_ip.split('/')[0]
             f.write(f"auto {pi_iface}.99\n")
             f.write(f"iface {pi_iface}.99 inet static\n")
-            f.write(f"  address {transit_ip_only}\n")
+            f.write(f"  address {transit_ip}\n")
             f.write(f"  vlan-raw-device {pi_iface}\n\n")
             
             for link in links:
-                ip_only = (link['rover_ip'] if site == "rover" else link['base_ip']).split('/')[0]
+                ip_cidr = link['rover_ip'] if site == "rover" else link['base_ip']
                 f.write(f"auto {pi_iface}.{link['vlan']}\n")
                 f.write(f"iface {pi_iface}.{link['vlan']} inet static\n")
-                f.write(f"  address {ip_only}\n")
+                f.write(f"  address {ip_cidr}\n")
                 f.write(f"  vlan-raw-device {pi_iface}\n\n")
 
     # ---------------------------------------------------------
     # 4.3 FRRouting Configs (OSPF & Babel)
     # ---------------------------------------------------------
     frr_sites = [
-        ("rover", rover_transit_ip_only, rover_ospf_network), 
-        ("base", base_transit_ip_only, base_ospf_network)
+        ("rover", rover_transit_ip_only, str(rover_iface_obj.network)), 
+        ("base", base_transit_ip_only, str(base_iface_obj.network))
     ]
     
-    for site, ip_only, ospf_network in frr_sites:
+    for site, ip_only, full_network in frr_sites:
         with open(f"{out_dir}/{site}_frr.conf", "w") as f:
             # OSPF Configuration
             f.write(f"! {site.capitalize()} FRR Config\n")
             f.write("router ospf\n")
             f.write(f" ospf router-id {ip_only}\n")
-            f.write(f" network {ospf_network}/30 area 0\n")
+            f.write(f" network {full_network} area 0\n")
             f.write(" redistribute babel\n\n")
             
             # Babel Routing Protocol Configuration

@@ -15,7 +15,7 @@ interface GigabitEthernet1/0/15
  switchport trunk allowed vlan 900,24,99
 
 interface Vlan99
- ip address 10.99.2.2 255.255.255.252
+ ip address 10.99.2.1 255.255.255.252
  ip ospf 1 area 0
 
 router ospf 1

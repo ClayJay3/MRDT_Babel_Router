@@ -21,7 +21,7 @@ app = Flask(__name__)
 # frontend dashboard will automatically adjust to track these dynamically!
 TRAFFIC_CATEGORIES = {
     "TELEM": {
-        "subnets": ["192.168.2.0/24", "192.168.3.0/24"],
+        "subnets": ["192.168.2.0/24"],
         "tc_class": "1:1",     # Linux traffic control priority queue
         "color": "#00BCD4"     # Dashboard graphing color (Cyan)
     },
@@ -30,23 +30,17 @@ TRAFFIC_CATEGORIES = {
         "tc_class": "1:3",
         "color": "#FF9800"     # Orange
     },
-    # Example: You could uncomment this to instantly add Autonomy tracking.
-    # "AUTONOMY": {
-    #     "subnets": ["192.168.5.0/24"],
-    #     "tc_class": "1:2",
-    #     "color": "#9C27B0"   # Purple
-    # }
+    "AUTONOMY": {
+        "subnets": ["192.168.3.0/24"],
+        "tc_class": "1:1",
+        "color": "#9C27B0"   # Purple
+    }
 }
 
 # --- INTERFACE CONFIGURATION ---
 # Add, remove, or modify radio links here. The dashboard will automatically
 # generate the pipes, graphs, and API endpoints for them.
 INTERFACES = {
-    "5.8GHz": {
-        "device": "eth0.58",
-        "color": "#c8102e", # MRDT Red
-        "qos_restricted": False
-    },
     "2.4GHz": {
         "device": "eth0.24",
         "color": "#e0a800", # Gold

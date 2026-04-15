@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>MRDT Network Dashboard</title>
+    <title>MRDT Babel Telemetry</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
@@ -182,9 +182,10 @@
             border-radius: 4px;
             z-index: 2;
             letter-spacing: 1px;
+            white-space: nowrap;
         }
-        .pipe-label.tx { left: 15%; top: -10px; }
-        .pipe-label.rx { right: 15%; top: -10px; }
+        .pipe-label.tx { left: 20px; top: -10px; }
+        .pipe-label.rx { right: 20px; top: -10px; }
 
         .tube {
             width: 100%;
@@ -380,15 +381,15 @@
                 <div class="link-container" id="container-${safeId}">
                     <div class="headers">
                         <div class="band-label" id="label-${safeId}">${band}</div>
-                        <div class="vlan-badge vlan-standby" id="vlan-${safeId}">NO TRAFFIC</div>
+                        <div class="vlan-badge vlan-standby" id="vlan-${safeId}">STANDBY</div>
                     </div>
                     <div class="dual-pipes">
                         <div class="directional-pipe-wrapper">
-                            <div class="pipe-label tx">TX ➔</div>
+                            <div class="pipe-label tx" id="vlan-tx-${safeId}">TX ➔</div>
                             <div class="tube" id="tube-tx-${safeId}"></div>
                         </div>
                         <div class="directional-pipe-wrapper">
-                            <div class="pipe-label rx">⬅ RX</div>
+                            <div class="pipe-label rx" id="vlan-rx-${safeId}">⬅ RX</div>
                             <div class="tube" id="tube-rx-${safeId}"></div>
                         </div>
                     </div>
@@ -494,8 +495,8 @@
                     // Sum metrics across all links
                     totalRx += linkData.rx_mbps;
                     totalTx += linkData.tx_mbps;
-                    totalTelem += linkData.vlan_telem_mbps;
-                    totalCam += linkData.vlan_cam_mbps;
+                    totalTelem += linkData.tx_vlan_telem_mbps + linkData.rx_vlan_telem_mbps;
+                    totalCam += linkData.tx_vlan_cam_mbps + linkData.rx_vlan_cam_mbps;
 
                     // Evaluate Active Link Health
                     if (linkData.active) {
@@ -521,12 +522,18 @@
 
                     const txTube = document.getElementById(`tube-tx-${safeId}`);
                     const rxTube = document.getElementById(`tube-rx-${safeId}`);
+                    const txLabel = document.getElementById(`vlan-tx-${safeId}`);
+                    const rxLabel = document.getElementById(`vlan-rx-${safeId}`);
                     const vlanBadge = document.getElementById(`vlan-${safeId}`);
                     const label = document.getElementById(`label-${safeId}`);
                     
                     let vlanText = 'STANDBY'; 
                     let vlanClass = 'vlan-standby'; 
                     let labelColor = getCssVar('--text-muted');
+
+                    // Default labels
+                    txLabel.innerText = "TX ➔ NO TRAFFIC";
+                    rxLabel.innerText = "⬅ RX NO TRAFFIC";
 
                     if (linkData.status === "DOWN") {
                         vlanText = 'LINK DOWN'; 
@@ -539,7 +546,17 @@
                     } else {
                         document.getElementById(`status-${safeId}`).style.color = getCssVar('--text-main');
                         
-                        if (linkData.active) {
+                        // Decouple TX and RX logic
+                        let txActive = linkData.active; // TX relies on local Babel route
+                        let rxActive = linkData.rx_mbps > 0.05; // RX relies on physical throughput (> 50kbps)
+
+                        // Standby Reset (Defaults)
+                        txTube.className = 'tube';
+                        rxTube.className = 'tube';
+                        txTube.style.height = '6px';
+                        rxTube.style.height = '6px';
+                        
+                        if (txActive || rxActive) {
                             labelColor = '#4CAF50';
                             let bgClass = 'bg-green';
                             
@@ -549,37 +566,43 @@
                                 labelColor = '#FFC107'; 
                             }
                             
-                            // Set directional flow animations
-                            txTube.className = `tube ${bgClass} anim-right`;
-                            rxTube.className = `tube ${bgClass} anim-left`;
+                            // 1. Handle TX Tube & Dynamic VLAN Label
+                            if (txActive) {
+                                txTube.className = `tube ${bgClass} anim-right`;
+                                let txHeight = Math.min(35, Math.max(6, 6 + (linkData.tx_mbps * 1.5)));
+                                txTube.style.height = `${txHeight}px`;
+                                let txSpeed = Math.max(0.15, 1.2 - (linkData.tx_mbps * 0.05));
+                                txTube.style.animationDuration = `${txSpeed}s`;
 
-                            // Inflate the tube based on Mbps (min 6px, max 35px, grows 1.5px per Mbps)
-                            let txHeight = Math.min(35, Math.max(6, 6 + (linkData.tx_mbps * 1.5)));
-                            let rxHeight = Math.min(35, Math.max(6, 6 + (linkData.rx_mbps * 1.5)));
-                            txTube.style.height = `${txHeight}px`;
-                            rxTube.style.height = `${rxHeight}px`;
+                                let vlans = [];
+                                if (linkData.tx_vlan_telem_mbps > 0.05) vlans.push("VLAN 2+3 (TELEM)");
+                                if (linkData.tx_vlan_cam_mbps > 0.05) vlans.push("VLAN 4 (CAM)");
+                                txLabel.innerText = vlans.length > 0 ? `TX ➔ ${vlans.join(' & ')}` : `TX ➔ TRAFFIC`;
+                            }
 
-                            // Speed up flow animation based on traffic volume
-                            let txSpeed = Math.max(0.15, 1.2 - (linkData.tx_mbps * 0.05));
-                            let rxSpeed = Math.max(0.15, 1.2 - (linkData.rx_mbps * 0.05));
-                            txTube.style.animationDuration = `${txSpeed}s`;
-                            rxTube.style.animationDuration = `${rxSpeed}s`;
+                            // 2. Handle RX Tube & Dynamic VLAN Label
+                            if (rxActive) {
+                                rxTube.className = `tube ${bgClass} anim-left`;
+                                let rxHeight = Math.min(35, Math.max(6, 6 + (linkData.rx_mbps * 1.5)));
+                                rxTube.style.height = `${rxHeight}px`;
+                                let rxSpeed = Math.max(0.15, 1.2 - (linkData.rx_mbps * 0.05));
+                                rxTube.style.animationDuration = `${rxSpeed}s`;
 
-                            // Custom rules for different bands
+                                let vlans = [];
+                                if (linkData.rx_vlan_telem_mbps > 0.05) vlans.push("VLAN 2+3 (TELEM)");
+                                if (linkData.rx_vlan_cam_mbps > 0.05) vlans.push("VLAN 4 (CAM)");
+                                rxLabel.innerText = vlans.length > 0 ? `⬅ RX ${vlans.join(' & ')}` : `⬅ RX TRAFFIC`;
+                            }
+
+                            // Update top badge to show general link status instead of hardcoded vlans
                             if (band === "900MHz") {
-                                vlanText = 'CARRYING: VLAN 2 & 3 | DROPPING: VLAN 4 (QoS ACTIVE)';
+                                vlanText = 'QoS ACTIVE (DROPPING VIDEO)';
                                 vlanClass = 'vlan-qos'; 
                                 labelColor = '#f44336'; 
                             } else {
-                                vlanText = 'FLOWING: VLAN 2 (Telem), VLAN 3 (Autonomy), VLAN 4 (Cam)';
+                                vlanText = 'LINK ACTIVE';
                                 vlanClass = 'vlan-active';
                             }
-                        } else {
-                            // Standby Reset
-                            txTube.className = 'tube';
-                            rxTube.className = 'tube';
-                            txTube.style.height = '6px';
-                            rxTube.style.height = '6px';
                         }
                     }
 

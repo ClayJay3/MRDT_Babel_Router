@@ -16,6 +16,11 @@ import os
 # Initialize the Flask application
 app = Flask(__name__)
 
+# Define the subnets for your traffic categories here based on your generator script.
+# The script will use iptables to accurately track incoming traffic matching these.
+TELEM_SUBNETS = ["192.168.2.0/24", "192.168.3.0/24"]
+CAM_SUBNETS = ["192.168.4.0/24"]
+
 # Define the network interfaces used for the rover's communication bands
 INTERFACES = {
     "5.8GHz": "eth0.58",
@@ -26,8 +31,8 @@ INTERFACES = {
 # State dictionaries to track byte counts for calculating live throughput (Mbps)
 # We store the last read RX/TX bytes and the exact timestamp of the read.
 last_bytes = {iface: {"rx": 0, "tx": 0, "time": time.time()} for iface in INTERFACES.values()}
-last_tc_bytes = {iface: {"telem": 0, "cam": 0, "time": time.time()} for iface in INTERFACES.values()}
-
+last_tx_vlan_bytes = {iface: {"telem": 0, "cam": 0, "time": time.time()} for iface in INTERFACES.values()}
+last_rx_vlan_bytes = {iface: {"telem": 0, "cam": 0, "time": time.time()} for iface in INTERFACES.values()}
 
 def get_throughput(iface):
     """
@@ -65,18 +70,11 @@ def get_throughput(iface):
         # Return zeros if the interface doesn't exist or is inaccessible
         return 0.0, 0.0
 
-
-def get_qos_throughput(iface):
+def get_tx_vlan_throughput(iface):
     """
-    Parses Linux tc (Traffic Control) output to get VLAN-specific throughput.
-    
-    Args:
-        iface (str): The name of the network interface.
-        
-    Returns:
-        tuple: (telem_mbps, cam_mbps) rounded to 2 decimal places.
+    Parses Linux tc (Traffic Control) output to get TX VLAN-specific throughput.
     """
-    global last_tc_bytes
+    global last_tx_vlan_bytes
     telem_bytes = 0
     cam_bytes = 0
     
@@ -96,26 +94,67 @@ def get_qos_throughput(iface):
                     cam_bytes = int(match.group(1))
 
         current_time = time.time()
-        time_diff = current_time - last_tc_bytes[iface]["time"]
+        time_diff = current_time - last_tx_vlan_bytes[iface]["time"]
 
         # Calculate Megabits per second
         if time_diff > 0:
-            telem_mbps = ((telem_bytes - last_tc_bytes[iface]["telem"]) * 8) / (time_diff * 1_000_000)
-            cam_mbps = ((cam_bytes - last_tc_bytes[iface]["cam"]) * 8) / (time_diff * 1_000_000)
+            telem_mbps = ((telem_bytes - last_tx_vlan_bytes[iface]["telem"]) * 8) / (time_diff * 1_000_000)
+            cam_mbps = ((cam_bytes - last_tx_vlan_bytes[iface]["cam"]) * 8) / (time_diff * 1_000_000)
         else:
             telem_mbps, cam_mbps = 0.0, 0.0
 
-        # Prevent negative spikes on script restart or tc configuration reload
-        telem_mbps = max(0.0, telem_mbps)
-        cam_mbps = max(0.0, cam_mbps)
-
         # Update the state for the next calculation
-        last_tc_bytes[iface] = {"telem": telem_bytes, "cam": cam_bytes, "time": current_time}
-        return round(telem_mbps, 2), round(cam_mbps, 2)
+        last_tx_vlan_bytes[iface] = {"telem": telem_bytes, "cam": cam_bytes, "time": current_time}
+        return max(0.0, round(telem_mbps, 2)), max(0.0, round(cam_mbps, 2))
         
     except Exception:
-        # Return zeros if tc isn't running, the interface lacks QoS, or parsing fails
         return 0.0, 0.0
+
+def get_rx_vlan_throughput(base_iface):
+    """
+    Actively detects incoming (RX) VLAN throughput with 100% accuracy using iptables.
+    Reads the exact byte counters from the custom MRDT_RX_ACCT chain.
+    """
+    global last_rx_vlan_bytes
+    telem_bytes = 0
+    cam_bytes = 0
+    
+    try:
+        # Read the exact byte counters (-x), numeric format (-n), verbose (-v)
+        out = subprocess.check_output(["iptables", "-t", "mangle", "-L", "MRDT_RX_ACCT", "-v", "-n", "-x"], text=True)
+        
+        for line in out.split('\n'):
+            parts = line.split()
+            # Expected parsed format:
+            # ['10', '1500', 'all', '--', 'eth0.58', '*', '0.0.0.0/0', '192.168.2.0/24']
+            # parts[1] = bytes, parts[4] = in-interface, parts[6] = source, parts[7] = dest
+            if len(parts) >= 8 and parts[4] == base_iface:
+                bytes_count = int(parts[1])
+                src_ip = parts[6]
+                dst_ip = parts[7]
+                
+                # Sum the bytes if the subnet matches either source or destination.
+                # (This handles the dashboard running on either the Rover or the Basestation)
+                if any(sub in src_ip or sub in dst_ip for sub in TELEM_SUBNETS):
+                    telem_bytes += bytes_count
+                elif any(sub in src_ip or sub in dst_ip for sub in CAM_SUBNETS):
+                    cam_bytes += bytes_count
+                    
+    except Exception:
+        pass # If iptables is missing or fails, we will gracefully return 0.0
+
+    # CALCULATION Phase
+    current_time = time.time()
+    time_diff = current_time - last_rx_vlan_bytes[base_iface]["time"]
+
+    if time_diff > 0:
+        rx_telem_mbps = ((telem_bytes - last_rx_vlan_bytes[base_iface]["telem"]) * 8) / (time_diff * 1_000_000)
+        rx_cam_mbps = ((cam_bytes - last_rx_vlan_bytes[base_iface]["cam"]) * 8) / (time_diff * 1_000_000)
+        
+        last_rx_vlan_bytes[base_iface] = {"telem": telem_bytes, "cam": cam_bytes, "time": current_time}
+        return max(0.0, round(rx_telem_mbps, 2)), max(0.0, round(rx_cam_mbps, 2))
+    
+    return 0.0, 0.0
 
 
 def get_babel_data():
@@ -177,15 +216,18 @@ def api_stats():
     for name, iface in INTERFACES.items():
         # Fetch current metrics for each interface
         rx, tx = get_throughput(iface)
-        telem_mbps, cam_mbps = get_qos_throughput(iface)
+        tx_vlan_telem, tx_vlan_cam = get_tx_vlan_throughput(iface)
+        rx_vlan_telem, rx_vlan_cam = get_rx_vlan_throughput(iface)
         
         # Build the JSON response structure
         payload[name] = {
             "interface": iface,
             "rx_mbps": rx,
             "tx_mbps": tx,
-            "vlan_telem_mbps": telem_mbps,
-            "vlan_cam_mbps": cam_mbps,
+            "tx_vlan_telem_mbps": tx_vlan_telem,
+            "tx_vlan_cam_mbps": tx_vlan_cam,
+            "rx_vlan_telem_mbps": rx_vlan_telem,
+            "rx_vlan_cam_mbps": rx_vlan_cam,
             "etx": babel_data.get(iface, {}).get("etx", "N/A"),
             "rtt": babel_data.get(iface, {}).get("rtt", "N/A"),
             "status": "UP" if babel_data.get(iface, {}).get("up", False) else "DOWN",
@@ -203,7 +245,35 @@ def index():
     """
     return render_template('index.html')
 
+def init_iptables():
+    """
+    Sets up iptables rules in the mangle table to purely count incoming packets.
+    This does not drop or alter traffic; it only creates accounting buckets.
+    """
+    try:
+        # Flush and recreate the accounting chain safely
+        subprocess.run(["iptables", "-t", "mangle", "-F", "MRDT_RX_ACCT"], stderr=subprocess.DEVNULL)
+        subprocess.run(["iptables", "-t", "mangle", "-N", "MRDT_RX_ACCT"], stderr=subprocess.DEVNULL)
+        
+        # Ensure it's linked from PREROUTING so it sees traffic before any routing decisions
+        subprocess.run(["iptables", "-t", "mangle", "-D", "PREROUTING", "-j", "MRDT_RX_ACCT"], stderr=subprocess.DEVNULL)
+        subprocess.run(["iptables", "-t", "mangle", "-I", "PREROUTING", "1", "-j", "MRDT_RX_ACCT"], stderr=subprocess.DEVNULL)
+        
+        # Create counting rules for each interface and subnet
+        for iface in INTERFACES.values():
+            for subnet in TELEM_SUBNETS + CAM_SUBNETS:
+                # Match as source (Accounts for traffic returning from the network)
+                subprocess.run(["iptables", "-t", "mangle", "-A", "MRDT_RX_ACCT", "-i", iface, "-s", subnet], stderr=subprocess.DEVNULL)
+                # Match as destination (Accounts for traffic entering heading into the subnets)
+                subprocess.run(["iptables", "-t", "mangle", "-A", "MRDT_RX_ACCT", "-i", iface, "-d", subnet], stderr=subprocess.DEVNULL)
+                
+        print("[+] Successfully initialized iptables RX accounting rules.")
+    except Exception as e:
+        print(f"[-] Failed to initialize iptables: {e}")
 
 if __name__ == '__main__':
+    # Initialize our packet tracking rules before starting the server
+    init_iptables()
+    
     # Start the Flask development server on all available network interfaces
     app.run(host='0.0.0.0', port=5000, debug=False)

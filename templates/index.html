@@ -80,9 +80,35 @@
         /* Dynamic Directional Tubes */
         .dual-pipes { width: 110%; display: flex; flex-direction: column; gap: 12px; margin: 15px 0; z-index: 1; }
         .directional-pipe-wrapper { display: flex; align-items: center; width: 100%; position: relative; }
+        
         .pipe-label { position: absolute; font-size: 0.65em; font-weight: bold; color: #fff; background: rgba(0, 0, 0, 0.6); padding: 3px 8px; border-radius: 4px; z-index: 2; letter-spacing: 1px; white-space: nowrap; }
         .pipe-label.tx { left: 20px; top: -10px; }
         .pipe-label.rx { right: 20px; top: -10px; }
+
+        /* Moving Label Animations */
+        @keyframes slideLabelRight {
+            0% { left: 0%; transform: translateX(0%); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { left: 100%; transform: translateX(-100%); opacity: 0; }
+        }
+        
+        @keyframes slideLabelLeft {
+            0% { left: 100%; transform: translateX(-100%); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { left: 0%; transform: translateX(0%); opacity: 0; }
+        }
+
+        .anim-label-right {
+            right: auto !important; /* Force left processing */
+            animation: slideLabelRight 3s linear infinite;
+        }
+
+        .anim-label-left {
+            right: auto !important; /* Disconnect original fixed right anchor */
+            animation: slideLabelLeft 3s linear infinite;
+        }
 
         .tube { width: 100%; height: 6px; background: var(--border-color); border-radius: 10px; transition: height 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), background-color 0.3s, box-shadow 0.3s; }
 
@@ -373,9 +399,13 @@
                     let vlanClass = 'vlan-standby'; 
                     let labelColor = getCssVar('--text-muted');
 
-                    // Default labels
+                    // Default label states (Standby / Down)
                     txLabel.innerText = "TX ➔ NO TRAFFIC";
                     rxLabel.innerText = "⬅ RX NO TRAFFIC";
+                    txLabel.className = 'pipe-label tx';
+                    rxLabel.className = 'pipe-label rx';
+                    txLabel.style.animationDuration = '';
+                    rxLabel.style.animationDuration = '';
 
                     if (linkData.status === "DOWN") {
                         vlanText = 'LINK DOWN'; 
@@ -411,10 +441,16 @@
                             // 1. Handle TX Tube & Dynamic VLAN Label
                             if (txActive) {
                                 txTube.className = `tube ${bgClass} anim-right`;
+                                txLabel.className = `pipe-label tx anim-label-right`; // Engage animation
+                                
                                 let txHeight = Math.min(35, Math.max(6, 6 + (linkData.tx_mbps * 1.5)));
                                 txTube.style.height = `${txHeight}px`;
+                                
+                                // Dynamic speeds for both the striped tube and the moving label
                                 let txSpeed = Math.max(0.15, 1.2 - (linkData.tx_mbps * 0.05));
+                                let txLabelSpeed = Math.max(1.5, 3.5 - (linkData.tx_mbps * 0.1)); // Keep label readable but scale it
                                 txTube.style.animationDuration = `${txSpeed}s`;
+                                txLabel.style.animationDuration = `${txLabelSpeed}s`;
 
                                 let activeTxCats = [];
                                 categoryNames.forEach(cat => {
@@ -426,10 +462,16 @@
                             // 2. Handle RX Tube & Dynamic VLAN Label
                             if (rxActive) {
                                 rxTube.className = `tube ${bgClass} anim-left`;
+                                rxLabel.className = `pipe-label rx anim-label-left`; // Engage animation
+
                                 let rxHeight = Math.min(35, Math.max(6, 6 + (linkData.rx_mbps * 1.5)));
                                 rxTube.style.height = `${rxHeight}px`;
+                                
+                                // Dynamic speeds for both the striped tube and the moving label
                                 let rxSpeed = Math.max(0.15, 1.2 - (linkData.rx_mbps * 0.05));
+                                let rxLabelSpeed = Math.max(1.5, 3.5 - (linkData.rx_mbps * 0.1)); // Keep label readable but scale it
                                 rxTube.style.animationDuration = `${rxSpeed}s`;
+                                rxLabel.style.animationDuration = `${rxLabelSpeed}s`;
 
                                 let activeRxCats = [];
                                 categoryNames.forEach(cat => {

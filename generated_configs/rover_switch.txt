@@ -8,10 +8,25 @@ vlan 24
 vlan 99
  name Pi_Transit_Rover
 
-interface GigabitEthernet1/10
+interface GigabitEthernet1/3
  description Trunk to Rover Pi
+ switchport
  switchport mode trunk
  switchport trunk allowed vlan 900,24,99
+ no spanning-tree portfast
+ no spanning-tree bpduguard enable
+
+interface GigabitEthernet1/1
+ description 900MHz Radio Link
+ switchport
+ switchport mode access
+ switchport access vlan 900
+
+interface GigabitEthernet1/2
+ description 2.4GHz Radio Link
+ switchport
+ switchport mode access
+ switchport access vlan 24
 
 interface Vlan99
  ip address 10.99.1.1 255.255.255.252
@@ -20,6 +35,7 @@ interface Vlan99
 router ospf 1
  router-id 192.168.254.1
  network 10.99.1.0 0.0.0.3 area 0
+ network 192.168.254.1 0.0.0.0 area 0
  network 192.168.2.0 0.0.0.255 area 0
  network 192.168.3.0 0.0.0.255 area 0
  network 192.168.4.0 0.0.0.255 area 0

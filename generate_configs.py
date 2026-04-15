@@ -52,10 +52,14 @@ def main():
     # Rover core settings
     rover_transit_ip = get_input("What IP address should the Rover Pi use for the Transit VLAN?\nInclude the CIDR mask.", "10.99.1.2/30")
     rover_transit_mask = get_input("What is the subnet mask for that Rover Transit IP?", "255.255.255.252")
+    rover_switch_trunk = get_input("What is the Rover Cisco Switch port connected to the Pi?", "GigabitEthernet1/10")
+    rover_loopback_ip = get_input("What is the Rover Cisco Switch Loopback IP (for Multicast RP)?", "192.168.254.1")
     
     # Base core settings
     base_transit_ip = get_input("What IP address should the Base Pi use for the Transit VLAN?\nInclude the CIDR mask.", "10.99.2.2/30")
     base_transit_mask = get_input("What is the subnet mask for that Base Transit IP?", "255.255.255.252")
+    base_switch_trunk = get_input("What is the Base Cisco Switch port connected to the Pi?", "GigabitEthernet1/0/15")
+    base_loopback_ip = get_input("What is the Base Cisco Switch Loopback IP (for Multicast RP)?", "192.168.254.2")
     
     # ==========================================
     # 2. WIRELESS LINKS SETUP
@@ -82,6 +86,9 @@ def main():
         rover_ip = get_input(f"What is the Rover Pi's IP on the {freq} link? (Include CIDR)", rover_ip_example)
         base_ip = get_input(f"What is the Basestation Pi's IP on the {freq} link? (Include CIDR)", base_ip_example)
         
+        rover_radio_port = get_input(f"What is the Rover Cisco Switch port for the {freq} radio?", "GigabitEthernet1/1")
+        base_radio_port = get_input(f"What is the Base Cisco Switch port for the {freq} radio?", "GigabitEthernet1/0/12")
+        
         # Store configuration as a dictionary for later file generation
         links.append({
             "freq": freq.replace(" ", "_"), 
@@ -89,6 +96,8 @@ def main():
             "cost": cost, 
             "rover_ip": rover_ip, 
             "base_ip": base_ip, 
+            "rover_radio_port": rover_radio_port,
+            "base_radio_port": base_radio_port,
             "channel": i+1
         })
 
@@ -172,10 +181,20 @@ def main():
             
         f.write("vlan 99\n name Pi_Transit_Rover\n\n")
         
-        f.write("interface GigabitEthernet1/10\n description Trunk to Rover Pi\n")
+        f.write(f"interface {rover_switch_trunk}\n description Trunk to Rover Pi\n")
         f.write(" switchport mode trunk\n")
-        f.write(f" switchport trunk allowed vlan {allowed_vlan_str}\n\n")
+        f.write(f" switchport trunk allowed vlan {allowed_vlan_str}\n")
+        f.write(" no spanning-tree portfast\n")
+        f.write(" no spanning-tree bpduguard enable\n\n")
         
+        # Generate Layer 2 access ports for the radios
+        for link in links:
+            f.write(f"interface {link['rover_radio_port']}\n")
+            f.write(f" description {link['freq']} Radio Link\n")
+            f.write(" switchport\n")
+            f.write(" switchport mode access\n")
+            f.write(f" switchport access vlan {link['vlan']}\n\n")
+
         f.write("interface Vlan99\n")
         f.write(f" ip address {rover_switch_ip} {rover_transit_mask}\n")
         f.write(" ip ospf 1 area 0\n\n")
@@ -183,6 +202,7 @@ def main():
         f.write("router ospf 1\n")
         f.write(" router-id 192.168.254.1\n")
         f.write(f" network {rover_ospf_network} {rover_wildcard} area 0\n")
+        f.write(f" network {rover_loopback_ip} 0.0.0.0 area 0\n")
         
         # Dynamic wildcard for all subnets
         for vlan in all_rover_vlans: 
@@ -200,11 +220,21 @@ def main():
             
         f.write("vlan 99\n name Pi_Transit_Base\n\n")
         
-        f.write("interface GigabitEthernet1/0/15\n description Trunk to Base Pi\n")
+        f.write(f"interface {base_switch_trunk}\n description Trunk to Base Pi\n")
         f.write(" switchport trunk encapsulation dot1q\n")
         f.write(" switchport mode trunk\n")
-        f.write(f" switchport trunk allowed vlan {allowed_vlan_str}\n\n")
+        f.write(f" switchport trunk allowed vlan {allowed_vlan_str}\n")
+        f.write(" no spanning-tree portfast\n")
+        f.write(" no spanning-tree bpduguard enable\n\n")
         
+        # Generate Layer 2 access ports for the radios
+        for link in links:
+            f.write(f"interface {link['base_radio_port']}\n")
+            f.write(f" description {link['freq']} Radio Link\n")
+            f.write(" switchport\n")
+            f.write(" switchport mode access\n")
+            f.write(f" switchport access vlan {link['vlan']}\n\n")
+
         f.write("interface Vlan99\n")
         f.write(f" ip address {base_switch_ip} {base_transit_mask}\n")
         f.write(" ip ospf 1 area 0\n\n")
@@ -212,6 +242,7 @@ def main():
         f.write("router ospf 1\n")
         f.write(" router-id 192.168.254.2\n")
         f.write(f" network {base_ospf_network} {base_wildcard} area 0\n")
+        f.write(f" network {base_loopback_ip} 0.0.0.0 area 0\n")
         
         base_vlan_net = ipaddress.IPv4Network(base_vlan, strict=False)
         f.write(f" network {base_vlan_net.network_address} {base_vlan_net.hostmask} area 0\n")

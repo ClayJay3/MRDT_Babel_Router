@@ -8,11 +8,26 @@ vlan 24
 vlan 99
  name Pi_Transit_Base
 
-interface GigabitEthernet1/0/15
+interface GigabitEthernet1/0/12
  description Trunk to Base Pi
+ switchport
  switchport trunk encapsulation dot1q
  switchport mode trunk
  switchport trunk allowed vlan 900,24,99
+ no spanning-tree portfast
+ no spanning-tree bpduguard enable
+
+interface GigabitEthernet1/0/13
+ description 900MHz Radio Link
+ switchport
+ switchport mode access
+ switchport access vlan 900
+
+interface GigabitEthernet1/0/14
+ description 2.4GHz Radio Link
+ switchport
+ switchport mode access
+ switchport access vlan 24
 
 interface Vlan99
  ip address 10.99.2.1 255.255.255.252
@@ -21,4 +36,5 @@ interface Vlan99
 router ospf 1
  router-id 192.168.254.2
  network 10.99.2.0 0.0.0.3 area 0
+ network 192.168.254.2 0.0.0.0 area 0
  network 192.168.100.0 0.0.0.255 area 0

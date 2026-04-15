@@ -1,0 +1,22 @@
+[Unit]
+Description=Rover QoS Traffic Control Setup
+# Wait until the network is actually functional
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# 1. Fixes the 'sleep' error by keeping it separate
+ExecStartPre=/usr/bin/sleep 30
+
+# 2. Fixes 'tc: command not found' by providing the correct PATH
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# 3. Runs your script as root (required for tc)
+ExecStart=/home/pi/rover_qos.sh
+
+# Keeps the service marked as 'active' even after the script finishes
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

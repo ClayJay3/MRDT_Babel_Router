@@ -1,0 +1,21 @@
+[Unit]
+Description=MRDT Babel Router Dashboard
+After=network.target
+
+[Service]
+# Run as root as requested
+User=root
+Group=root
+
+# Set the working directory so relative paths in your script work correctly
+WorkingDirectory=/home/pi/MRDT_Babel_Router
+
+# Use the full path to the python interpreter
+ExecStart=/usr/bin/python3 /home/pi/MRDT_Babel_Router/dashboard.py
+
+# Restart the service if it crashes
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -121,7 +121,7 @@ The Raspberry Pis need to know how to tag traffic for the Cisco switches using V
 
 4. **Apply QoS & IP Forwarding:** Make the generated QoS scripts executable (`chmod +x rover_qos.sh`) and run them. 
    *(Note: This script automatically enables `net.ipv4.ip_forward=1` in the Linux kernel to allow routing).*
-   Configure the script to run on startup (e.g., via a systemd service or cron `@reboot`).
+   Configure the script to run on startup (e.g., via a systemd service or cron `@reboot`). **You can just use the already written services in the `services/` folder but you must remember to `sudo chmod +x` the scripts.**
 
 ### 5: The Telemetry Dashboard
 To monitor link quality, ETX, Latency, and VLAN distribution in real-time, run the included dashboard application on either Pi.

@@ -10,8 +10,6 @@ vlan 99
 
 interface GigabitEthernet1/0/12
  description Trunk to Base Pi
- switchport
- switchport trunk encapsulation dot1q
  switchport mode trunk
  switchport trunk allowed vlan 900,24,99
  no spanning-tree portfast

@@ -216,7 +216,7 @@ def main():
         f.write("vlan 99\n name Pi_Transit_Base\n\n")
         
         f.write(f"interface {base_switch_trunk}\n description Trunk to Base Pi\n")
-        f.write(" switchport trunk encapsulation dot1q\n")
+        # f.write(" switchport trunk encapsulation dot1q\n")
         f.write(" switchport mode trunk\n")
         f.write(f" switchport trunk allowed vlan {allowed_vlan_str}\n")
         f.write(" no spanning-tree portfast\n")
@@ -307,7 +307,7 @@ def main():
             for link in links:
                 f.write(f"\ninterface {iface}.{link['vlan']}\n")
                 f.write(" ip pim\n")
-                f.write(" babel type wireless\n")
+                f.write(" babel wireless\n")
                 f.write(" no babel split-horizon\n")
                 f.write(f" babel channel {link['channel']}\n")
                 f.write(f" babel rxcost {link['cost']}\n")

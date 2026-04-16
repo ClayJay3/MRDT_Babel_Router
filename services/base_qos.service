@@ -1,5 +1,5 @@
 [Unit]
-Description=Rover QoS Traffic Control Setup
+Description=base QoS Traffic Control Setup
 # Wait until the network is actually functional
 After=network-online.target
 Wants=network-online.target
@@ -13,7 +13,7 @@ ExecStartPre=/usr/bin/sleep 30
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # 3. Runs your script as root (required for tc)
-ExecStart=/home/pi/Documents/MRDT_Babel_Router/generated_configs/rover_qos.sh
+ExecStart=/home/pi/Documents/MRDT_Babel_Router/generated_configs/base_qos.sh
 
 # Keeps the service marked as 'active' even after the script finishes
 RemainAfterExit=yes

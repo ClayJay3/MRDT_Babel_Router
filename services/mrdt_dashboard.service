@@ -8,10 +8,10 @@ User=root
 Group=root
 
 # Set the working directory so relative paths in your script work correctly
-WorkingDirectory=/home/pi/MRDT_Babel_Router
+WorkingDirectory=/home/pi/Documents/MRDT_Babel_Router
 
 # Use the full path to the python interpreter
-ExecStart=/usr/bin/python3 /home/pi/MRDT_Babel_Router/dashboard.py
+ExecStart=/usr/bin/python3 /home/pi/Documents/MRDT_Babel_Router/dashboard.py
 
 # Restart the service if it crashes
 Restart=always

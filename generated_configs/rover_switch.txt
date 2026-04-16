@@ -8,9 +8,8 @@ vlan 24
 vlan 99
  name Pi_Transit_Rover
 
-interface GigabitEthernet1/3
+interface GigabitEthernet1/10
  description Trunk to Rover Pi
- switchport
  switchport mode trunk
  switchport trunk allowed vlan 900,24,99
  no spanning-tree portfast

@@ -302,7 +302,7 @@ def main():
             # Babel Routing Protocol Configuration
             f.write("router babel\n")
             f.write(" babel diversity\n")
-            f.write(" redistribute ospf\n")
+            f.write(" redistribute ipv4 ospf\n")
             for link in links: 
                 f.write(f" network {iface}.{link['vlan']}\n")
                 

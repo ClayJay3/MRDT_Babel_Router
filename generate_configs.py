@@ -171,6 +171,8 @@ def main():
     with open(f"{out_dir}/rover_switch.txt", "w") as f:
         f.write("! MRDT Rover Cisco Switch Config\n")
         f.write("no router eigrp 90\n\n")
+        f.write("ip routing\n")
+        f.write("ip multicast-routing\n")
         
         for link in links: 
             f.write(f"vlan {link['vlan']}\n")
@@ -295,6 +297,7 @@ def main():
             f.write(f" ospf router-id {ip_only}\n")
             f.write(f" network {full_network} area 0\n")
             f.write(" redistribute babel\n\n")
+            f.write(" redistribute connected\n\n")
             
             # Babel Routing Protocol Configuration
             f.write("router babel\n")

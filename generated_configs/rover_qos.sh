@@ -3,7 +3,7 @@
 sysctl -w net.ipv4.ip_forward=1
 
 # Apply Traffic Control (QoS) to all wireless subinterfaces
-for i in end0.900 end0.24; do
+for i in eth0.900 eth0.24; do
     tc qdisc del dev $i root 2>/dev/null
     tc qdisc add dev $i root handle 1: prio bands 3
 

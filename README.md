@@ -80,7 +80,7 @@ We have built a dynamic Python script to generate the exact Cisco commands, FRR 
    ```bash
    python3 generate_configs.py
    ```
-3. Follow the instructions. *Note: Ensure you know if your Pi uses `eth0` (Pi 4) or `end0` (Pi 5)!*
+3. Follow the instructions.
 4. The script will output a `generated_configs/` folder containing everything you need.
 
 ### 2: Switch Configuration

@@ -1,18 +1,18 @@
 network:
   version: 2
   ethernets:
-    end0:
+    eth0:
       dhcp4: true
   vlans:
-    end0.99:
+    eth0.99:
       id: 99
-      link: end0
+      link: eth0
       addresses: [10.99.1.2/30]
-    end0.900:
+    eth0.900:
       id: 900
-      link: end0
+      link: eth0
       addresses: [10.0.0.1/29]
-    end0.24:
+    eth0.24:
       id: 24
-      link: end0
+      link: eth0
       addresses: [10.0.0.9/29]

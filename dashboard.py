@@ -184,7 +184,7 @@ def get_rx_vlan_throughput(base_iface):
 def get_babel_data():
     """
     Pulls live routing and neighbor data from FRRouting (FRR) via vtysh.
-    Parses plain text since babel doesn't natively support JSON output.
+    Parses plain text specifically formatted for FRR 10.x+.
     """
     data = {}
     
@@ -193,54 +193,53 @@ def get_babel_data():
         iface_name = details["device"]
         data[iface_name] = {"etx": "N/A", "rtt": "N/A", "up": False, "active": False}
             
-    # 1. Fetch neighbor link quality (ETX/RTT)
+    # 1. Fetch neighbor link quality (ETX/RTT/Reachability)
     try:
-        neigh_out = subprocess.check_output(["vtysh", "-c", "show babel neighbor"], text=True)
-        current_iface = None
+        # Added 'sudo' to prevent permission denials if the service runs as 'pi'
+        neigh_out = subprocess.check_output(["sudo", "vtysh", "-c", "show babel neighbor"], text=True)
         
         for line in neigh_out.splitlines():
-            line = line.strip()
-            
-            # Match neighbor definition: "Neighbor 192.168.1.2 on eth0.24"
-            if line.startswith("Neighbor") and " on " in line:
-                current_iface = line.split(" on ")[-1].strip(":")
-                
-            elif current_iface and current_iface in data:
-                # Extract metrics
-                if "cost" in line or "rtt" in line:
-                    cost_match = re.search(r'cost\s+(\d+)', line)
-                    rtt_match = re.search(r'rtt\s+([\d\.]+ms)', line)
+            # Example target line:
+            # Neighbour fe80::2ecf:67ff:fe00:9b8b dev eth0.24 reach ffff rxcost 258 txcost 258 rtt 0.737 rttcost 0.
+            if line.startswith("Neighbour") and "dev" in line:
+                dev_match = re.search(r'dev\s+(\S+)', line)
+                if dev_match:
+                    iface = dev_match.group(1)
                     
-                    if cost_match:
-                        data[current_iface]["etx"] = cost_match.group(1)
-                    if rtt_match:
-                        data[current_iface]["rtt"] = rtt_match.group(1)
+                    if iface in data:
+                        rxcost_match = re.search(r'rxcost\s+(\d+)', line)
+                        rtt_match = re.search(r'rtt\s+([\d\.]+)', line)
+                        reach_match = re.search(r'reach\s+([0-9a-fA-F]+)', line)
                         
-                # Check link state
-                if "Up" in line or "up" in line:
-                    data[current_iface]["up"] = True
-                    
+                        if rxcost_match:
+                            data[iface]["etx"] = rxcost_match.group(1)
+                        if rtt_match:
+                            data[iface]["rtt"] = rtt_match.group(1)
+                            
+                        # Use the reachability register to determine true UP state
+                        if reach_match:
+                            reach_val = reach_match.group(1)
+                            # '0000' means no recent hellos (dead link). Anything else is ALIVE.
+                            if reach_val != "0000":
+                                data[iface]["up"] = True
+                        
     except Exception as e:
         print(f"[-] Babel neighbor parsing failed: {e}")
 
     # 2. Fetch active routing table to see which link is currently selected
     try:
-        route_out = subprocess.check_output(["vtysh", "-c", "show babel route"], text=True)
+        # Added 'sudo' here as well
+        route_out = subprocess.check_output(["sudo", "vtysh", "-c", "show babel route"], text=True)
         
         for line in route_out.splitlines():
-            line = line.strip()
-            
-            # Look for lines confirming an active, installed route
-            # Example: "via 192.168.1.2 dev eth0.900 weight 0 installed"
-            if "installed" in line and "dev" in line:
-                parts = line.split()
-                if "dev" in parts:
-                    dev_idx = parts.index("dev")
-                    # Ensure we don't index out of bounds
-                    if dev_idx + 1 < len(parts):
-                        iface = parts[dev_idx + 1]
-                        if iface in data:
-                            data[iface]["active"] = True
+            # Example target line:
+            # 192.168.2.0/24 metric 258 ... via eth0.24 neigh ... (installed)
+            if "(installed)" in line and "via" in line:
+                via_match = re.search(r'via\s+(\S+)', line)
+                if via_match:
+                    iface = via_match.group(1)
+                    if iface in data:
+                        data[iface]["active"] = True
                             
     except Exception as e:
         print(f"[-] Babel route parsing failed: {e}")

@@ -102,13 +102,21 @@ def get_tx_vlan_throughput(iface):
         # Ask Linux for the QoS bucket stats using the 'tc' command
         tc_out = subprocess.check_output(["tc", "-s", "class", "show", "dev", iface], stderr=subprocess.DEVNULL, text=True)
         
-        # Regex to find byte counts for dynamic tc classes
-        for line in tc_out.split('\n'):
+        current_cat = None
+        for line in tc_out.splitlines():
+            # 1. Look for the class definition (e.g., 'class prio 1:1' or 'class htb 1:1')
             for cat, details in TRAFFIC_CATEGORIES.items():
-                if f"class prio {details['tc_class']}" in line:
-                    match = re.search(r'Sent (\d+) bytes', line)
-                    if match: 
-                        cat_bytes[cat] = int(match.group(1))
+                # Spacing is important here to avoid partial matches
+                if f"class " in line and f" {details['tc_class']} " in line:
+                    current_cat = cat
+                    break
+            
+            # 2. Look for the Sent bytes on the subsequent line(s)
+            if current_cat and "Sent" in line:
+                match = re.search(r'Sent (\d+) bytes', line)
+                if match: 
+                    cat_bytes[current_cat] = int(match.group(1))
+                    current_cat = None # Reset after finding the bytes for this class
 
         current_time = time.time()
         time_diff = current_time - last_tx_vlan_bytes[iface]["time"]
@@ -176,6 +184,7 @@ def get_rx_vlan_throughput(base_iface):
 def get_babel_data():
     """
     Pulls live routing and neighbor data from FRRouting (FRR) via vtysh.
+    Parses plain text since babel doesn't natively support JSON output.
     """
     data = {}
     
@@ -186,33 +195,55 @@ def get_babel_data():
             
     # 1. Fetch neighbor link quality (ETX/RTT)
     try:
-        neigh_out = subprocess.check_output(["vtysh", "-c", "show babel neighbor json"], text=True)
-        neighbors = json.loads(neigh_out)
+        neigh_out = subprocess.check_output(["vtysh", "-c", "show babel neighbor"], text=True)
+        current_iface = None
         
-        for neigh in neighbors.values(): 
-            if isinstance(neigh, list):
-                for n in neigh:
-                    iface = n.get("interface")
-                    if iface in data:
-                        data[iface]["etx"] = n.get("rxcost", "N/A")
-                        data[iface]["rtt"] = n.get("rtt", "N/A")
-                        data[iface]["up"] = n.get("state") == "Up"
-    except Exception:
-        pass # Silently pass if FRR isn't running or vtysh fails
+        for line in neigh_out.splitlines():
+            line = line.strip()
+            
+            # Match neighbor definition: "Neighbor 192.168.1.2 on eth0.24"
+            if line.startswith("Neighbor") and " on " in line:
+                current_iface = line.split(" on ")[-1].strip(":")
+                
+            elif current_iface and current_iface in data:
+                # Extract metrics
+                if "cost" in line or "rtt" in line:
+                    cost_match = re.search(r'cost\s+(\d+)', line)
+                    rtt_match = re.search(r'rtt\s+([\d\.]+ms)', line)
+                    
+                    if cost_match:
+                        data[current_iface]["etx"] = cost_match.group(1)
+                    if rtt_match:
+                        data[current_iface]["rtt"] = rtt_match.group(1)
+                        
+                # Check link state
+                if "Up" in line or "up" in line:
+                    data[current_iface]["up"] = True
+                    
+    except Exception as e:
+        print(f"[-] Babel neighbor parsing failed: {e}")
 
     # 2. Fetch active routing table to see which link is currently selected
     try:
-        route_out = subprocess.check_output(["vtysh", "-c", "show babel route json"], text=True)
-        routes = json.loads(route_out)
+        route_out = subprocess.check_output(["vtysh", "-c", "show babel route"], text=True)
         
-        for prefix, paths in routes.items():
-            for path in paths:
-                if path.get("installed") is True:
-                    iface = path.get("interface")
-                    if iface in data:
-                        data[iface]["active"] = True
-    except Exception:
-        pass
+        for line in route_out.splitlines():
+            line = line.strip()
+            
+            # Look for lines confirming an active, installed route
+            # Example: "via 192.168.1.2 dev eth0.900 weight 0 installed"
+            if "installed" in line and "dev" in line:
+                parts = line.split()
+                if "dev" in parts:
+                    dev_idx = parts.index("dev")
+                    # Ensure we don't index out of bounds
+                    if dev_idx + 1 < len(parts):
+                        iface = parts[dev_idx + 1]
+                        if iface in data:
+                            data[iface]["active"] = True
+                            
+    except Exception as e:
+        print(f"[-] Babel route parsing failed: {e}")
 
     return data
 

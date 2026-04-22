@@ -170,9 +170,9 @@ def main():
     # Generate Rover Switch
     with open(f"{out_dir}/rover_switch.txt", "w") as f:
         f.write("! MRDT Rover Cisco Switch Config\n")
-        f.write("no router eigrp 90\n\n")
+        f.write("no router eigrp 90\n")
         f.write("ip routing\n")
-        f.write("ip multicast-routing\n")
+        f.write("ip multicast-routing\n\n")
         
         for link in links: 
             f.write(f"vlan {link['vlan']}\n")
@@ -181,6 +181,7 @@ def main():
         f.write("vlan 99\n name Pi_Transit_Rover\n\n")
         
         f.write(f"interface {rover_switch_trunk}\n description Trunk to Rover Pi\n")
+        f.write(" switchport\n")
         f.write(" switchport mode trunk\n")
         f.write(f" switchport trunk allowed vlan {allowed_vlan_str}\n")
         f.write(" no spanning-tree portfast\n")
@@ -191,7 +192,9 @@ def main():
             f.write(f" description {link['freq']} Radio Link\n")
             f.write(" switchport\n")
             f.write(" switchport mode access\n")
-            f.write(f" switchport access vlan {link['vlan']}\n\n")
+            f.write(f" switchport access vlan {link['vlan']}\n")
+            f.write(" no spanning-tree portfast\n")
+            f.write(" no spanning-tree bpduguard enable\n\n")
 
         f.write("interface Vlan99\n")
         f.write(f" ip address {rover_switch_ip} {rover_transit_mask}\n")
@@ -209,7 +212,9 @@ def main():
     # Generate Base Switch
     with open(f"{out_dir}/base_switch.txt", "w") as f:
         f.write("! MRDT Base Cisco Switch Config\n")
-        f.write("no router eigrp 90\n\n")
+        f.write("no router eigrp 90\n")
+        f.write("ip routing\n")
+        f.write("ip multicast-routing\n\n")
         
         for link in links: 
             f.write(f"vlan {link['vlan']}\n")
@@ -218,7 +223,7 @@ def main():
         f.write("vlan 99\n name Pi_Transit_Base\n\n")
         
         f.write(f"interface {base_switch_trunk}\n description Trunk to Base Pi\n")
-        # f.write(" switchport trunk encapsulation dot1q\n")
+        f.write(" switchport\n")
         f.write(" switchport mode trunk\n")
         f.write(f" switchport trunk allowed vlan {allowed_vlan_str}\n")
         f.write(" no spanning-tree portfast\n")
@@ -229,7 +234,9 @@ def main():
             f.write(f" description {link['freq']} Radio Link\n")
             f.write(" switchport\n")
             f.write(" switchport mode access\n")
-            f.write(f" switchport access vlan {link['vlan']}\n\n")
+            f.write(f" switchport access vlan {link['vlan']}\n")
+            f.write(" no spanning-tree portfast\n")
+            f.write(" no spanning-tree bpduguard enable\n\n")
 
         f.write("interface Vlan99\n")
         f.write(f" ip address {base_switch_ip} {base_transit_mask}\n")
@@ -296,7 +303,7 @@ def main():
             f.write("router ospf\n")
             f.write(f" ospf router-id {ip_only}\n")
             f.write(f" network {full_network} area 0\n")
-            f.write(" redistribute babel\n\n")
+            f.write(" redistribute babel\n")
             f.write(" redistribute connected\n\n")
             
             # Babel Routing Protocol Configuration
@@ -314,8 +321,8 @@ def main():
                 f.write(" no babel split-horizon\n")
                 f.write(f" babel channel {link['channel']}\n")
                 f.write(f" babel rxcost {link['cost']}\n")
-                f.write(" babel hello-interval 1000\n")
-                f.write(" babel update-interval 4000\n")
+                f.write(" babel hello-interval 3000\n")
+                f.write(" babel update-interval 12000\n")
                 f.write(" babel enable-timestamps\n")
                 f.write(" babel max-rtt-penalty 150\n")
 
@@ -329,6 +336,14 @@ def main():
             # Force IP Forwarding on
             f.write("# Ensure the Linux Kernel is routing packets\n")
             f.write("sysctl -w net.ipv4.ip_forward=1\n\n")
+
+            # --- BABEL VIP QoS IMPLEMENTATION ---
+            f.write("# Mark Babel Control Traffic (UDP 6696) as VIP\n")
+            f.write("# We delete first to prevent duplicate rules if the script is run multiple times\n")
+            f.write("iptables -t mangle -D POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10 2>/dev/null\n")
+            f.write("iptables -t mangle -A POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10\n\n")
+            f.write("ip6tables -t mangle -D POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10 2>/dev/null\n")
+            f.write("ip6tables -t mangle -A POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10\n\n")
             
             f.write("# Apply Traffic Control (QoS) to all wireless subinterfaces\n")
             
@@ -339,7 +354,11 @@ def main():
             f.write("    tc qdisc add dev $i root handle 1: prio bands 3\n\n")
             
             # --- High Priority Traffic ---
-            f.write("    # BAND 1 (HIGHEST PRIORITY - Telemetry/Motors)\n")
+            f.write("    # BAND 1 (HIGHEST PRIORITY - Babel Protocol & Telemetry/Motors)\n")
+            # Push marked Babel traffic into the high-priority queue
+            f.write("    tc filter add dev $i protocol ip parent 1:0 prio 1 handle 10 fw flowid 1:1\n")
+            f.write("    tc filter add dev $i protocol ipv6 parent 1:0 prio 1 handle 10 fw flowid 1:1\n")
+
             for vlan in high_prio_vlans:
                 direction = "src" if site == "rover" else "dst"
                 f.write(f"    tc filter add dev $i protocol ip parent 1: prio 1 u32 match ip {direction} {vlan['subnet']} flowid 1:1\n")
@@ -358,7 +377,6 @@ def main():
     print("============================================================")
     print(" You MUST manually enable the routing daemons on BOTH Pis.")
     print(" Open /etc/frr/daemons and ensure the following are set to 'yes':")
-    print("   - zebra=yes")
     print("   - ospfd=yes")
     print("   - babeld=yes")
     print("   - pimd=yes")

@@ -2,7 +2,6 @@
 no router eigrp 90
 ip routing
 ip multicast-routing
-
 vlan 900
  name 900MHz_Link
 vlan 24
@@ -10,8 +9,9 @@ vlan 24
 vlan 99
  name Pi_Transit_Rover
 
-interface GigabitEthernet1/10
+interface GigabitEthernet1/3
  description Trunk to Rover Pi
+ switchport
  switchport mode trunk
  switchport trunk allowed vlan 900,24,99
  no spanning-tree portfast
@@ -22,12 +22,16 @@ interface GigabitEthernet1/1
  switchport
  switchport mode access
  switchport access vlan 900
+ no spanning-tree portfast
+ no spanning-tree bpduguard enable
 
 interface GigabitEthernet1/2
  description 2.4GHz Radio Link
  switchport
  switchport mode access
  switchport access vlan 24
+ no spanning-tree portfast
+ no spanning-tree bpduguard enable
 
 interface Vlan99
  ip address 10.99.1.1 255.255.255.252

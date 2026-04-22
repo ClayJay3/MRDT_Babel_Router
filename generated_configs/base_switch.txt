@@ -12,6 +12,7 @@ vlan 99
 
 interface GigabitEthernet1/0/12
  description Trunk to Base Pi
+ switchport
  switchport mode trunk
  switchport trunk allowed vlan 900,24,99
  no spanning-tree portfast
@@ -22,12 +23,16 @@ interface GigabitEthernet1/0/13
  switchport
  switchport mode access
  switchport access vlan 900
+ no spanning-tree portfast
+ no spanning-tree bpduguard enable
 
 interface GigabitEthernet1/0/14
  description 2.4GHz Radio Link
  switchport
  switchport mode access
  switchport access vlan 24
+ no spanning-tree portfast
+ no spanning-tree bpduguard enable
 
 interface Vlan99
  ip address 10.99.2.1 255.255.255.252

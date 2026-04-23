@@ -332,33 +332,29 @@ def main():
     # ---------------------------------------------------------
     for site, _, iface in network_sites:
         with open(f"{out_dir}/{site}_qos.sh", "w") as f:
-            f.write("#!/bin/bash\n")
-            f.write("# Ensure the Linux Kernel is routing packets\n")
-            f.write("sysctl -w net.ipv4.ip_forward=1\n\n")
-
-            f.write("# Mark Babel Control Traffic (UDP 6696) as VIP\n")
-            f.write("iptables -t mangle -D POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10 2>/dev/null\n")
-            f.write("iptables -t mangle -A POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10\n\n")
-            f.write("ip6tables -t mangle -D POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10 2>/dev/null\n")
-            f.write("ip6tables -t mangle -A POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10\n\n")
+            f.write("#!/bin/bash\n# Ensure the Linux Kernel is routing packets\nsysctl -w net.ipv4.ip_forward=1\n\n")
+            f.write("# Load required QoS kernel modules\nmodprobe sch_prio 2>/dev/null\nmodprobe cls_fw 2>/dev/null\nmodprobe cls_u32 2>/dev/null\n\n")
+            f.write("# Mark Babel Control Traffic (UDP 6696) as VIP\niptables -t mangle -D POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10 2>/dev/null\niptables -t mangle -A POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10\n\n")
+            f.write("ip6tables -t mangle -D POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10 2>/dev/null\nip6tables -t mangle -A POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10\n\n")
             
             ifaces_string = " ".join([f"{iface}.{link['vlan']}" for link in links])
-            f.write(f"for i in {ifaces_string}; do\n")
-            f.write("    tc qdisc del dev $i root 2>/dev/null\n")
-            f.write("    tc qdisc add dev $i root handle 1: prio bands 3\n\n")
-            
+            f.write(f"for i in {ifaces_string}; do\n    tc qdisc del dev $i root 2>/dev/null\n    tc qdisc add dev $i root handle 1: prio bands 3\n\n")
             f.write("    # BAND 1 (HIGHEST PRIORITY - Babel Protocol & Telemetry/Motors)\n")
             f.write("    tc filter add dev $i protocol ip parent 1:0 prio 1 handle 10 fw flowid 1:1\n")
-            f.write("    tc filter add dev $i protocol ipv6 parent 1:0 prio 1 handle 10 fw flowid 1:1\n")
-
+            f.write("    tc filter add dev $i protocol ipv6 parent 1:0 prio 2 handle 10 fw flowid 1:1\n")
+            
+            # Start a dynamic counter so priority numbers never collide
+            prio_counter = 3
             for vlan in high_prio_vlans:
                 direction = "src" if site == "rover" else "dst"
-                f.write(f"    tc filter add dev $i protocol ip parent 1: prio 1 u32 match ip {direction} {vlan['subnet']} flowid 1:1\n")
-            
+                f.write(f"    tc filter add dev $i protocol ip parent 1:0 prio {prio_counter} u32 match ip {direction} {vlan['subnet']} flowid 1:1\n")
+                prio_counter += 1
+                
             f.write("\n    # BAND 3 (LOWEST PRIORITY - Cameras/Science - Dropped if congested)\n")
             for vlan in low_prio_vlans:
                 direction = "src" if site == "rover" else "dst"
-                f.write(f"    tc filter add dev $i protocol ip parent 1: prio 3 u32 match ip {direction} {vlan['subnet']} flowid 1:3\n")
+                f.write(f"    tc filter add dev $i protocol ip parent 1:0 prio {prio_counter} u32 match ip {direction} {vlan['subnet']} flowid 1:3\n")
+                prio_counter += 1
                 
             f.write("done\n")
 

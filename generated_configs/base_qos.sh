@@ -3,14 +3,12 @@
 sysctl -w net.ipv4.ip_forward=1
 
 # Mark Babel Control Traffic (UDP 6696) as VIP
-# We delete first to prevent duplicate rules if the script is run multiple times
 iptables -t mangle -D POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10 2>/dev/null
 iptables -t mangle -A POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10
 
 ip6tables -t mangle -D POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10 2>/dev/null
 ip6tables -t mangle -A POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10
 
-# Apply Traffic Control (QoS) to all wireless subinterfaces
 for i in eth0.900 eth0.24; do
     tc qdisc del dev $i root 2>/dev/null
     tc qdisc add dev $i root handle 1: prio bands 3

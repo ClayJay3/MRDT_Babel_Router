@@ -37,8 +37,8 @@ def get_int_input(prompt, example):
 def main():
     print_header("MRDT Dynamic Network Config Generator", 
                  "This wizard will ask you questions about your hardware and IP\n"
-                 "layout to dynamically generate Cisco, FRRouting, Netplan, and\n"
-                 "Linux Traffic Control (QoS) configurations.")
+                 "layout to dynamically generate Cisco, FRRouting, and Linux\n"
+                 "brute-force VLAN and QoS configurations.")
 
     # ==========================================
     # 1. CORE NETWORK DETAILS
@@ -145,7 +145,6 @@ def main():
     print_header("Generating Files...", f"Saving to ./{out_dir}/")
 
     # --- Pre-calculate values using ipaddress module ---
-    # Use ipaddress to avoid collisions and brittle slicing
     rover_iface_obj = ipaddress.IPv4Interface(rover_transit_ip)
     base_iface_obj = ipaddress.IPv4Interface(base_transit_ip)
     
@@ -178,9 +177,11 @@ def main():
             f.write(f"vlan {link['vlan']}\n")
             f.write(f" name {link['freq']}_Link\n")
             
-        f.write("vlan 99\n name Pi_Transit_Rover\n\n")
+        f.write("vlan 99\n")
+        f.write(" name Pi_Transit_Rover\n\n")
         
-        f.write(f"interface {rover_switch_trunk}\n description Trunk to Rover Pi\n")
+        f.write(f"interface {rover_switch_trunk}\n")
+        f.write(" description Trunk to Rover Pi\n")
         f.write(" switchport\n")
         f.write(" switchport mode trunk\n")
         f.write(f" switchport trunk allowed vlan {allowed_vlan_str}\n")
@@ -220,9 +221,11 @@ def main():
             f.write(f"vlan {link['vlan']}\n")
             f.write(f" name {link['freq']}_Link\n")
             
-        f.write("vlan 99\n name Pi_Transit_Base\n\n")
+        f.write("vlan 99\n")
+        f.write(" name Pi_Transit_Base\n\n")
         
-        f.write(f"interface {base_switch_trunk}\n description Trunk to Base Pi\n")
+        f.write(f"interface {base_switch_trunk}\n")
+        f.write(" description Trunk to Base Pi\n")
         f.write(" switchport\n")
         f.write(" switchport mode trunk\n")
         f.write(f" switchport trunk allowed vlan {allowed_vlan_str}\n")
@@ -251,7 +254,7 @@ def main():
         f.write(f" network {base_vlan_net.network_address} {base_vlan_net.hostmask} area 0\n")
 
     # ---------------------------------------------------------
-    # 4.2 Linux OS Network Configs (Netplan & Interfaces)
+    # 4.2 Linux OS Network Configs (Brute-Force VLAN Setup)
     # ---------------------------------------------------------
     network_sites = [
         ("rover", rover_transit_ip, rover_iface), 
@@ -260,28 +263,26 @@ def main():
     
     for site, transit_ip, iface in network_sites:
         
-        # Modern Ubuntu Network Setup (Netplan)
-        with open(f"{out_dir}/{site}_netplan.yaml", "w") as f:
-            f.write(f"network:\n  version: 2\n  ethernets:\n    {iface}:\n      dhcp4: true\n  vlans:\n")
-            f.write(f"    {iface}.99:\n      id: 99\n      link: {iface}\n      addresses: [{transit_ip}]\n")
+        # 1. Generate the Brute-Force Bash Script
+        with open(f"{out_dir}/{site}_force_vlans.sh", "w") as f:
+            f.write("#!/bin/bash\n")
+            f.write("# Load the VLAN kernel module just in case\n")
+            f.write("modprobe 8021q\n\n")
             
-            for link in links:
-                ip = link['rover_ip'] if site == "rover" else link['base_ip']
-                f.write(f"    {iface}.{link['vlan']}:\n      id: {link['vlan']}\n      link: {iface}\n      addresses: [{ip}]\n")
-        
-        # Legacy/Debian Network Setup (/etc/network/interfaces)
-        with open(f"{out_dir}/{site}_interfaces.txt", "w") as f:
-            f.write(f"auto {iface}.99\n")
-            f.write(f"iface {iface}.99 inet static\n")
-            f.write(f"  address {transit_ip}\n")
-            f.write(f"  vlan-raw-device {iface}\n\n")
+            f.write("# Force the base hardware interface UP\n")
+            f.write(f"ip link set {iface} up\n\n")
+            
+            f.write(f"# Force create and configure Transit VLAN 99\n")
+            f.write(f"ip link add link {iface} name {iface}.99 type vlan id 99 2>/dev/null\n")
+            f.write(f"ip addr add {transit_ip} dev {iface}.99 2>/dev/null\n")
+            f.write(f"ip link set {iface}.99 up\n\n")
             
             for link in links:
                 ip_cidr = link['rover_ip'] if site == "rover" else link['base_ip']
-                f.write(f"auto {iface}.{link['vlan']}\n")
-                f.write(f"iface {iface}.{link['vlan']} inet static\n")
-                f.write(f"  address {ip_cidr}\n")
-                f.write(f"  vlan-raw-device {iface}\n\n")
+                f.write(f"# Force create and configure {link['freq']} Link (VLAN {link['vlan']})\n")
+                f.write(f"ip link add link {iface} name {iface}.{link['vlan']} type vlan id {link['vlan']} 2>/dev/null\n")
+                f.write(f"ip addr add {ip_cidr} dev {iface}.{link['vlan']} 2>/dev/null\n")
+                f.write(f"ip link set {iface}.{link['vlan']} up\n\n")
 
     # ---------------------------------------------------------
     # 4.3 FRRouting Configs (OSPF, Babel, and PIM)
@@ -294,26 +295,26 @@ def main():
     for site, ip_only, full_network, iface in frr_sites:
         # Generate FRR Routing Config
         with open(f"{out_dir}/{site}_frr.conf", "w") as f:
-            # Transit Interface (PIM Enabled)
+            # Transit Interface
             f.write(f"! {site.capitalize()} FRR Config\n")
             f.write(f"interface {iface}.99\n")
             f.write(" ip pim\n\n")
             
-            # OSPF Configuration
+            # OSPF
             f.write("router ospf\n")
             f.write(f" ospf router-id {ip_only}\n")
             f.write(f" network {full_network} area 0\n")
             f.write(" redistribute babel\n")
             f.write(" redistribute connected\n\n")
             
-            # Babel Routing Protocol Configuration
+            # Babel Protocol 
             f.write("router babel\n")
             f.write(" babel diversity\n")
             f.write(" redistribute ipv4 ospf\n")
             for link in links: 
                 f.write(f" network {iface}.{link['vlan']}\n")
                 
-            # Individual Babel Wireless Link Settings (PIM Enabled)
+            # Individual Babel Links
             for link in links:
                 f.write(f"\ninterface {iface}.{link['vlan']}\n")
                 f.write(" ip pim\n")
@@ -332,30 +333,21 @@ def main():
     for site, _, iface in network_sites:
         with open(f"{out_dir}/{site}_qos.sh", "w") as f:
             f.write("#!/bin/bash\n")
-            
-            # Force IP Forwarding on
             f.write("# Ensure the Linux Kernel is routing packets\n")
             f.write("sysctl -w net.ipv4.ip_forward=1\n\n")
 
-            # --- BABEL VIP QoS IMPLEMENTATION ---
             f.write("# Mark Babel Control Traffic (UDP 6696) as VIP\n")
-            f.write("# We delete first to prevent duplicate rules if the script is run multiple times\n")
             f.write("iptables -t mangle -D POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10 2>/dev/null\n")
             f.write("iptables -t mangle -A POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10\n\n")
             f.write("ip6tables -t mangle -D POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10 2>/dev/null\n")
             f.write("ip6tables -t mangle -A POSTROUTING -p udp --dport 6696 -j MARK --set-mark 10\n\n")
             
-            f.write("# Apply Traffic Control (QoS) to all wireless subinterfaces\n")
-            
             ifaces_string = " ".join([f"{iface}.{link['vlan']}" for link in links])
-            
             f.write(f"for i in {ifaces_string}; do\n")
             f.write("    tc qdisc del dev $i root 2>/dev/null\n")
             f.write("    tc qdisc add dev $i root handle 1: prio bands 3\n\n")
             
-            # --- High Priority Traffic ---
             f.write("    # BAND 1 (HIGHEST PRIORITY - Babel Protocol & Telemetry/Motors)\n")
-            # Push marked Babel traffic into the high-priority queue
             f.write("    tc filter add dev $i protocol ip parent 1:0 prio 1 handle 10 fw flowid 1:1\n")
             f.write("    tc filter add dev $i protocol ipv6 parent 1:0 prio 1 handle 10 fw flowid 1:1\n")
 
@@ -363,7 +355,6 @@ def main():
                 direction = "src" if site == "rover" else "dst"
                 f.write(f"    tc filter add dev $i protocol ip parent 1: prio 1 u32 match ip {direction} {vlan['subnet']} flowid 1:1\n")
             
-            # --- Low Priority Traffic ---
             f.write("\n    # BAND 3 (LOWEST PRIORITY - Cameras/Science - Dropped if congested)\n")
             for vlan in low_prio_vlans:
                 direction = "src" if site == "rover" else "dst"
@@ -371,7 +362,7 @@ def main():
                 
             f.write("done\n")
 
-    print(f"Success! Generated 10 files in the ./generated_configs/ directory.")
+    print(f"Success! Generated 8 files in the ./generated_configs/ directory.")
     print("\n============================================================")
     print(" [!] IMPORTANT FRR DAEMON SETUP REQUIRED [!]")
     print("============================================================")

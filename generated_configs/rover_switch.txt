@@ -2,6 +2,7 @@
 no router eigrp 90
 ip routing
 ip multicast-routing
+
 vlan 900
  name 900MHz_Link
 vlan 24

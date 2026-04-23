@@ -1,0 +1,12 @@
+[Unit]
+Description=Force Create MRDT Rover Router VLANs
+After=network.target
+
+[Service]
+Type=oneshot
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/pi/Documents/MRDT_Babel_Router/generated_configs/rover_force_vlans.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

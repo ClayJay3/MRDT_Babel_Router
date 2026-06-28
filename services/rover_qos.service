@@ -1,22 +1,13 @@
 [Unit]
-Description=Rover QoS Traffic Control Setup
-# Wait until the network is actually functional
-After=network.target
-Wants=network.target
+Description=MRDT Rover QoS (HTB) setup
+After=rover_force_vlans.service frr.service
+Wants=rover_force_vlans.service
 
 [Service]
 Type=oneshot
-# 1. Fixes the 'sleep' error by keeping it separate
-ExecStartPre=/usr/bin/sleep 30
-
-# 2. Fixes 'tc: command not found' by providing the correct PATH
-Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
-# 3. Runs your script as root (required for tc)
-ExecStart=/home/pi/Documents/MRDT_Babel_Router/generated_configs/rover_qos.sh
-
-# Keeps the service marked as 'active' even after the script finishes
 RemainAfterExit=yes
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/pi/Documents/MRDT_Babel_Router/generated_configs/rover_qos.sh
 
 [Install]
 WantedBy=multi-user.target

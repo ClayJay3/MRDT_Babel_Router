@@ -68,8 +68,17 @@ We have built a dynamic Python script to generate the exact Cisco commands, FRR 
    ```bash
    python3 generate_configs.py
    ```
-3. Follow the instructions.
-4. The script will output a `generated_configs/` folder containing everything you need.
+3. Follow the instructions. Every prompt has a sensible default (press Enter to accept).
+4. The script writes the `generated_configs/` folder (switch, FRR, VLAN, QoS, force-vlans scripts) and the matching units in `services/`.
+
+**Choosing radios:** the generator knows the reference radios — `2.4GHz`/`M2`, `900MHz`/`M900`, and `5.8GHz`/`M5`. It asks `Enable <band>?` for each, or you can pick non-interactively:
+```bash
+python3 generate_configs.py --example --bands "2.4GHz,900MHz"   # current 2-radio field setup
+python3 generate_configs.py --example --bands "M5,M2,M900"      # all three
+```
+Each band has a fixed VLAN + subnet, so any subset stays collision-free.
+
+> **Ubiquiti Rocket M-series notes (transparent bridge):** Put each link's *real* usable airMAX throughput (read it from the airOS dashboard under load, **not** the marketing rate) into the "usable throughput" prompt — the Pi's HTB shaper is set just below it to kill airMAX bufferbloat. Also note M-series **don't pass Ethernet link-state** through the bridge: a dead RF link is detected only by Babel Hellos (`hello-interval 1000`), never by a switchport going down. If you use multicast/PIM, enable airMAX Multicast Enhancement (or disable IGMP snooping) on the radios.
 
 ### 2: Switch Configuration
 

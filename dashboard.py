@@ -22,17 +22,17 @@ app = Flask(__name__)
 TRAFFIC_CATEGORIES = {
     "TELEM": {
         "subnets": ["192.168.2.0/24"],
-        "tc_class": "1:1",     # Linux traffic control priority queue
+        "tc_class": "1:20",    # HTB high-priority class (was prio 1:1)
         "color": "#00BCD4"     # Dashboard graphing color (Cyan)
     },
     "CAM": {
         "subnets": ["192.168.4.0/24"],
-        "tc_class": "1:3",
+        "tc_class": "1:30",    # HTB bulk class (was prio 1:3)
         "color": "#FF9800"     # Orange
     },
     "AUTONOMY": {
         "subnets": ["192.168.3.0/24"],
-        "tc_class": "1:1",
+        "tc_class": "1:20",    # HTB high-priority class (was prio 1:1)
         "color": "#9C27B0"   # Purple
     }
 }

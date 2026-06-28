@@ -208,9 +208,10 @@ def gather_config():
     cfg["links"] = select_links(cfg["links"])
 
     cfg["enable_rtt_metric"] = ask_yes_no(
-        "Enable Babel RTT-based metric? Only useful for links with large but\n"
-        "  STABLE latency (e.g. satellite). Off is correct for normal radios -\n"
-        "  it prevents the link in use from being penalised for its own queueing",
+        "Let RTT influence ROUTING cost? (RTT is always measured and shown on\n"
+        "  the dashboard regardless.) Only useful for links with large but STABLE\n"
+        "  latency (e.g. satellite). Off is correct for normal radios - it stops\n"
+        "  the link in use from being penalised for its own queueing delay",
         cfg["enable_rtt_metric"])
 
     # --- Local VLANs ---
@@ -472,8 +473,11 @@ def write_frr(path, cfg, site):
         L.append(f" babel channel {l['channel']}")
         L.append(f" babel rxcost {l['cost']}")
         L.append(" babel hello-interval 1000")  # 1s hellos -> fast failure detection
+        # Always measure RTT so the dashboard can show latency. Only let it
+        # influence the routing cost when explicitly opted in (off by default,
+        # because queueing delay would otherwise destabilise path selection).
+        L.append(" babel enable-timestamps")
         if cfg["enable_rtt_metric"]:
-            L.append(" babel enable-timestamps")
             L.append(" babel max-rtt-penalty 150")
         L.append("!")
 
